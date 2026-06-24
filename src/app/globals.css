@@ -1,1 +1,179 @@
-:root{color-scheme:dark;background:#0b1020;color:#f8fafc}*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif}a{color:#93c5fd;text-decoration:none}a:hover{text-decoration:underline}.container{max-width:980px;margin:0 auto;padding:2rem}.nav{display:flex;gap:1rem;flex-wrap:wrap;padding:1rem 2rem;border-bottom:1px solid #25304a;background:#10172a}.card{border:1px solid #25304a;border-radius:12px;padding:1.25rem;background:#121a30;margin:1rem 0}.muted{color:#cbd5e1}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem}.badge{display:inline-block;border:1px solid #60a5fa;border-radius:999px;padding:.2rem .6rem;color:#bfdbfe;font-size:.875rem}
+:root {
+  color-scheme: dark;
+  background: #0b1020;
+  color: #f8fafc;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+a {
+  color: #93c5fd;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.container {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.nav {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid #25304a;
+  background: #10172a;
+}
+
+.nav-spacer {
+  flex: 1 1 auto;
+}
+
+.nav-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #93c5fd;
+  cursor: pointer;
+}
+
+.nav-button:hover {
+  text-decoration: underline;
+}
+
+.card {
+  border: 1px solid #25304a;
+  border-radius: 8px;
+  padding: 1.25rem;
+  background: #121a30;
+  margin: 1rem 0;
+}
+
+.muted {
+  color: #cbd5e1;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.badge {
+  display: inline-block;
+  border: 1px solid #60a5fa;
+  border-radius: 999px;
+  padding: .2rem .6rem;
+  color: #bfdbfe;
+  font-size: .875rem;
+}
+
+.form-card {
+  max-width: 560px;
+}
+
+.form-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.form-stack label {
+  display: grid;
+  gap: .4rem;
+  color: #dbeafe;
+}
+
+.form-stack input {
+  width: 100%;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: .7rem .8rem;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.button,
+.segmented-control button {
+  border: 1px solid #60a5fa;
+  border-radius: 6px;
+  padding: .7rem 1rem;
+  background: #1d4ed8;
+  color: #eff6ff;
+  cursor: pointer;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: .65;
+}
+
+.segmented-control {
+  display: inline-flex;
+  gap: .5rem;
+  margin-bottom: 1rem;
+}
+
+.segmented-control button {
+  background: #0f172a;
+}
+
+.segmented-control button.active {
+  background: #1d4ed8;
+}
+
+.notice {
+  color: #bbf7d0;
+}
+
+.error {
+  color: #fecaca;
+}
+
+.profile-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 560px) minmax(220px, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.role-list {
+  display: flex;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 760px) {
+  .container {
+    padding: 1rem;
+  }
+
+  .nav {
+    padding: 1rem;
+  }
+
+  .nav-spacer {
+    display: none;
+  }
+
+  .profile-layout {
+    grid-template-columns: 1fr;
+  }
+}

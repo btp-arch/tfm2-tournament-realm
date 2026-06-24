@@ -450,24 +450,30 @@ export type Database = {
         Row: {
           bio: string | null
           created_at: string
+          discord_username: string | null
           display_name: string
           id: string
+          steam_profile_url: string | null
           tfm2_handle: string | null
           updated_at: string
         }
         Insert: {
           bio?: string | null
           created_at?: string
+          discord_username?: string | null
           display_name: string
           id: string
+          steam_profile_url?: string | null
           tfm2_handle?: string | null
           updated_at?: string
         }
         Update: {
           bio?: string | null
           created_at?: string
+          discord_username?: string | null
           display_name?: string
           id?: string
+          steam_profile_url?: string | null
           tfm2_handle?: string | null
           updated_at?: string
         }
