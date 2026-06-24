@@ -1,0 +1,1 @@
+export default function RulesPage() { return <><h1>Rules</h1><div className="card"><h2>Community-first rules</h2><ul><li>Free-entry tournaments only.</li><li>No betting, wagers, buy-ins, wallets, deposits, withdrawals, rake, or payment features.</li><li>Match results rely on reporting, evidence, opponent confirmation, and organizer/admin review.</li></ul></div></>; }
