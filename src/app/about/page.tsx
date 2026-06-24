@@ -1,0 +1,1 @@
+export default function AboutPage() { return <><h1>About</h1><p className="muted">TFM2 Tournament Realm is an unofficial fan-made tournament hub for Teamfight Manager 2. It is not affiliated with, endorsed by, or sponsored by Teamfight Manager 2's developer or publisher.</p></>; }
