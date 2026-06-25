@@ -82,6 +82,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "disputes_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "disputes_match_id_fkey"
             columns: ["match_id"]
             isOneToOne: false
@@ -93,6 +100,13 @@ export type Database = {
             columns: ["opened_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "disputes_opened_by_fkey"
+            columns: ["opened_by"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -137,6 +151,13 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "match_confirmations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       match_events: {
@@ -170,6 +191,13 @@ export type Database = {
             columns: ["actor_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_events_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -221,6 +249,13 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "match_evidence_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       match_reports: {
@@ -267,6 +302,13 @@ export type Database = {
             columns: ["reporter_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_reports_reporter_id_fkey"
+            columns: ["reporter_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -329,8 +371,29 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "matches_host_user_id_fkey"
+            columns: ["host_user_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "matches_player_one_id_fkey"
             columns: ["player_one_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_player_one_id_fkey"
+            columns: ["player_one_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_player_two_id_fkey"
+            columns: ["player_two_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -339,7 +402,7 @@ export type Database = {
             foreignKeyName: "matches_player_two_id_fkey"
             columns: ["player_two_id"]
             isOneToOne: false
-            referencedRelation: "profiles"
+            referencedRelation: "public_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -354,6 +417,13 @@ export type Database = {
             columns: ["winner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_winner_id_fkey"
+            columns: ["winner_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -395,10 +465,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "organizer_feedback_organizer_id_fkey"
+            columns: ["organizer_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "organizer_feedback_submitted_by_fkey"
             columns: ["submitted_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organizer_feedback_submitted_by_fkey"
+            columns: ["submitted_by"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -438,10 +522,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "platform_roles_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "platform_roles_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_roles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -510,6 +608,13 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "tournament_organizers_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       tournament_registrations: {
@@ -555,6 +660,13 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "tournament_registrations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       tournaments: {
@@ -562,42 +674,51 @@ export type Database = {
           created_at: string
           created_by: string
           description: string | null
+          external_community_url: string | null
           format: Database["public"]["Enums"]["match_format"]
           id: string
           max_players: number | null
           name: string
+          registration_closes_at: string | null
           rules: string | null
           slug: string
           starts_at: string | null
           status: Database["public"]["Enums"]["tournament_status"]
+          tournament_format: Database["public"]["Enums"]["tournament_format"]
           updated_at: string
         }
         Insert: {
           created_at?: string
           created_by: string
           description?: string | null
+          external_community_url?: string | null
           format?: Database["public"]["Enums"]["match_format"]
           id?: string
           max_players?: number | null
           name: string
+          registration_closes_at?: string | null
           rules?: string | null
           slug: string
           starts_at?: string | null
           status?: Database["public"]["Enums"]["tournament_status"]
+          tournament_format?: Database["public"]["Enums"]["tournament_format"]
           updated_at?: string
         }
         Update: {
           created_at?: string
           created_by?: string
           description?: string | null
+          external_community_url?: string | null
           format?: Database["public"]["Enums"]["match_format"]
           id?: string
           max_players?: number | null
           name?: string
+          registration_closes_at?: string | null
           rules?: string | null
           slug?: string
           starts_at?: string | null
           status?: Database["public"]["Enums"]["tournament_status"]
+          tournament_format?: Database["public"]["Enums"]["tournament_format"]
           updated_at?: string
         }
         Relationships: [
@@ -608,16 +729,60 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "tournaments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
     }
     Views: {
-      [_ in never]: never
+      public_profiles: {
+        Row: {
+          display_name: string | null
+          id: string | null
+        }
+        Insert: {
+          display_name?: string | null
+          id?: string | null
+        }
+        Update: {
+          display_name?: string | null
+          id?: string | null
+        }
+        Relationships: []
+      }
+      tournament_registration_counts: {
+        Row: {
+          active_registration_count: number | null
+          tournament_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tournament_registrations_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
+      can_register_for_tournament: {
+        Args: { tournament: string }
+        Returns: boolean
+      }
       is_admin: { Args: never; Returns: boolean }
       is_match_participant: { Args: { match: string }; Returns: boolean }
       is_organizer_for: { Args: { tournament: string }; Returns: boolean }
+      is_public_tournament_status: {
+        Args: { status: Database["public"]["Enums"]["tournament_status"] }
+        Returns: boolean
+      }
     }
     Enums: {
       confirmation_status: "confirmed" | "disputed"
@@ -661,6 +826,7 @@ export type Database = {
         | "forfeit_player_two"
         | "replay_required"
       side_choice: "red" | "blue"
+      tournament_format: "single_elimination"
       tournament_status:
         | "draft"
         | "published"
@@ -669,6 +835,8 @@ export type Database = {
         | "in_progress"
         | "completed"
         | "cancelled"
+        | "check_in"
+        | "active"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -844,6 +1012,7 @@ export const Constants = {
         "replay_required",
       ],
       side_choice: ["red", "blue"],
+      tournament_format: ["single_elimination"],
       tournament_status: [
         "draft",
         "published",
@@ -852,6 +1021,8 @@ export const Constants = {
         "in_progress",
         "completed",
         "cancelled",
+        "check_in",
+        "active",
       ],
     },
   },

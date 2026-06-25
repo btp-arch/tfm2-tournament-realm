@@ -1,3 +1,11 @@
-export default function TournamentDetailPage({ params }: { params: { id: string } }) {
-  return <><h1>Tournament Detail</h1><p className="muted">Placeholder for tournament {params.id}.</p><div className="card">Registration, organizer roster, matches, and standings will be added in later milestones.</div></>;
+import { TournamentDetail } from "@/app/tournaments/[id]/tournament-detail";
+
+export default async function TournamentDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+
+  return <TournamentDetail tournamentId={id} />;
 }

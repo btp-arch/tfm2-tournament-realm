@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
@@ -253,6 +254,14 @@ export function AdminRoleManager() {
             Keep events free-entry and community-run. Organizer access is manually assigned, and
             Discord bot features plus automated game verification are outside this milestone.
           </p>
+        </div>
+
+        <div className="card">
+          <h2>Tournament Visibility</h2>
+          <p className="muted">Admins can view and manage all tournaments from the organizer dashboard.</p>
+          <Link className="button button-link" href="/organizer">
+            View Tournaments
+          </Link>
         </div>
       </section>
 

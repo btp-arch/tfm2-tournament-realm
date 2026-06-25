@@ -23,7 +23,9 @@ a:hover {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -101,13 +103,31 @@ input {
   color: #dbeafe;
 }
 
-.form-stack input {
+.form-stack input,
+.form-stack select,
+.form-stack textarea,
+.status-control select {
   width: 100%;
   border: 1px solid #334155;
   border-radius: 6px;
   padding: .7rem .8rem;
   background: #0f172a;
   color: #f8fafc;
+}
+
+.form-stack textarea,
+.pre-line {
+  white-space: pre-line;
+}
+
+.wide-form {
+  max-width: 760px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
 }
 
 .button,
@@ -206,7 +226,8 @@ input {
   gap: 1rem;
 }
 
-.role-management-row {
+.role-management-row,
+.management-row {
   justify-content: space-between;
   align-items: flex-start;
   border-top: 1px solid #25304a;
@@ -228,6 +249,54 @@ input {
   font-size: .875rem;
 }
 
+.tournament-list,
+.tournament-management-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.tournament-card h2,
+.management-row h3 {
+  margin-top: 0;
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.meta-grid.single-column {
+  grid-template-columns: 1fr;
+}
+
+.meta-grid dt {
+  color: #cbd5e1;
+  font-size: .85rem;
+}
+
+.meta-grid dd {
+  margin: .25rem 0 0;
+}
+
+.management-row,
+.status-control {
+  display: flex;
+  gap: 1rem;
+}
+
+.status-control {
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.status-control label {
+  display: grid;
+  gap: .4rem;
+  min-width: 220px;
+}
+
 @media (max-width: 760px) {
   .container {
     padding: 1rem;
@@ -245,7 +314,9 @@ input {
     grid-template-columns: 1fr;
   }
 
-  .role-management-row {
+  .role-management-row,
+  .management-row,
+  .status-control {
     flex-direction: column;
   }
 

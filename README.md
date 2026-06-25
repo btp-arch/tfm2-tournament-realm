@@ -90,8 +90,31 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - On successful sign-in, sign-up with an active session, or first profile load, app code calls `ensureProfile` to create the authenticated user's `profiles` row if it does not already exist.
 - Profile auto-creation is handled in app code instead of a database trigger for this milestone, so profile defaults can be kept near the auth/profile UI. The `profiles` table still uses RLS and only allows users to insert or update their own row.
 - Player is the default experience. Organizer/admin role detection reads `platform_roles`.
-- `/organizer` requires organizer or admin access and shows the Milestone 3 tournament creation placeholder.
+- `/organizer` requires organizer or admin access and lists tournaments the organizer can manage.
 - `/admin` requires admin access and includes profile search plus organizer/admin role management.
+
+## Tournament creation and registration
+
+- Organizers and admins can open `/tournaments/create` to create free-entry tournaments.
+- The creator is inserted into `tournament_organizers` after tournament creation.
+- V1 supports `single_elimination` tournaments and BO1/BO3/BO5 match formats.
+- Public visitors can browse public tournament statuses on `/tournaments` and `/tournaments/[id]`.
+- Signed-in players can register themselves while status is `registration_open`, capacity is available, and the registration close time has not passed.
+- Registered players can withdraw themselves before registration closes.
+- Organizers and admins can update tournament status from the tournament detail page.
+
+### Manual tournament smoke test
+
+1. Apply migrations and regenerate types for your target environment.
+2. Start the app with `npm run dev`.
+3. Sign in as an admin and grant organizer access to a test profile from `/admin`.
+4. Sign in as that organizer and open `/tournaments/create`.
+5. Create a tournament with status `Registration Open`, a future registration close time, and a later start time.
+6. Confirm the tournament appears on `/tournaments` and the organizer dashboard.
+7. Sign in as a normal player, open the tournament detail page, and register.
+8. Refresh the detail page and confirm the participant count increments and the button changes to withdraw.
+9. Withdraw before registration closes and confirm the participant count decrements.
+10. As the organizer or admin, change the tournament status to `Registration Closed` and confirm normal players can no longer register.
 
 ## First admin bootstrap
 
