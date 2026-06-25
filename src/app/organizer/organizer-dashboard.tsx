@@ -13,6 +13,7 @@ import {
   editableTournamentStatuses,
   formatDateTime,
   tournamentStatusLabels,
+  type MatchRow,
   type TournamentRow,
   type TournamentStatus,
 } from "@/lib/tournaments";
@@ -30,6 +31,7 @@ export function OrganizerDashboard() {
   const [roles, setRoles] = useState<RoleState>(emptyRoleState);
   const [tournaments, setTournaments] = useState<TournamentRow[]>([]);
   const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
+  const [reviewCounts, setReviewCounts] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,6 +111,33 @@ export function OrganizerDashboard() {
     }, {});
   }, [supabase]);
 
+  const loadReviewCounts = useCallback(async (managedTournaments: TournamentRow[]) => {
+    const tournamentIds = managedTournaments.map((tournament) => tournament.id);
+
+    if (tournamentIds.length === 0) {
+      return {};
+    }
+
+    const { data, error: matchesError } = await supabase
+      .from("matches")
+      .select("tournament_id, status")
+      .in("tournament_id", tournamentIds)
+      .in("status", ["disputed", "needs_admin", "result_reported"]);
+
+    if (matchesError) {
+      throw matchesError;
+    }
+
+    return (data as Pick<MatchRow, "tournament_id" | "status">[]).reduce<Record<string, number>>(
+      (counts, match) => {
+        counts[match.tournament_id] = (counts[match.tournament_id] ?? 0) + 1;
+
+        return counts;
+      },
+      {},
+    );
+  }, [supabase]);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -136,7 +165,10 @@ export function OrganizerDashboard() {
 
         if (loadedRoles.isOrganizer) {
           const managedTournaments = await loadManagedTournaments(data.user, loadedRoles);
-          const countsByTournament = await loadRegistrationCounts(managedTournaments);
+          const [countsByTournament, reviewsByTournament] = await Promise.all([
+            loadRegistrationCounts(managedTournaments),
+            loadReviewCounts(managedTournaments),
+          ]);
 
           if (!isMounted) {
             return;
@@ -144,6 +176,7 @@ export function OrganizerDashboard() {
 
           setTournaments(managedTournaments);
           setRegistrationCounts(countsByTournament);
+          setReviewCounts(reviewsByTournament);
         }
       } catch (caughtError) {
         if (isMounted) {
@@ -162,7 +195,7 @@ export function OrganizerDashboard() {
     return () => {
       isMounted = false;
     };
-  }, [loadManagedTournaments, loadRegistrationCounts, router, supabase]);
+  }, [loadManagedTournaments, loadRegistrationCounts, loadReviewCounts, router, supabase]);
 
   if (isLoading) {
     return <p className="muted">Loading organizer dashboard...</p>;
@@ -223,6 +256,7 @@ export function OrganizerDashboard() {
                 </div>
                 {group.tournaments.map((tournament) => {
                   const count = registrationCounts[tournament.id] ?? 0;
+                  const reviewCount = reviewCounts[tournament.id] ?? 0;
                   const capacity = tournament.max_players ? `/${tournament.max_players}` : "";
 
                   return (
@@ -234,6 +268,11 @@ export function OrganizerDashboard() {
                           {count}
                           {capacity} registered participant{count === 1 ? "" : "s"}
                         </p>
+                        {reviewCount > 0 ? (
+                          <p className="error">
+                            {reviewCount} match{reviewCount === 1 ? "" : "es"} need result review.
+                          </p>
+                        ) : null}
                       </div>
                       <div className="role-actions">
                         <Link className="button secondary-button button-link" href={`/tournaments/${tournament.id}`}>

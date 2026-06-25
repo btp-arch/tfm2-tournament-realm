@@ -189,7 +189,7 @@ function getTournamentStatusGuidance(
   if (status === "active") {
     return {
       current: "The tournament is live and the generated bracket is visible.",
-      next: "Match rooms and result reporting are intentionally out of scope for this milestone.",
+      next: "Players use match rooms to report results; organizers review disputed matches.",
     };
   }
 
@@ -1424,6 +1424,15 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                               playerTwoFallback,
                             )}
                           </p>
+                          {match.winner_id ? (
+                            <p className="notice">
+                              Winner: {getProfileName(profileMap, match.winner_id) ?? "Player"}
+                            </p>
+                          ) : match.status === "disputed" || match.status === "needs_admin" ? (
+                            <p className="error">Organizer review required.</p>
+                          ) : match.status === "result_reported" ? (
+                            <p className="muted">Result reports pending confirmation.</p>
+                          ) : null}
                         </div>
                         <div className="role-actions">
                           <span className="badge">{matchFormatLabels[match.format]}</span>

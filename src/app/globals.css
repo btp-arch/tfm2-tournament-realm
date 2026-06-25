@@ -364,6 +364,34 @@ textarea {
   color: #f8fafc;
 }
 
+.result-panel {
+  display: grid;
+  gap: 1rem;
+  border-top: 1px solid #25304a;
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.form-grid label,
+.wide-field {
+  display: grid;
+  gap: .4rem;
+  color: #dbeafe;
+}
+
+.form-grid input,
+.form-grid select,
+.wide-field input,
+.wide-field select,
+.wide-field textarea {
+  width: 100%;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: .7rem .8rem;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
 .destructive-summary {
   display: grid;
   gap: .4rem;
@@ -381,7 +409,8 @@ textarea {
 }
 
 .instruction-list,
-.timeline-list {
+.timeline-list,
+.evidence-list {
   display: grid;
   gap: .75rem;
 }
@@ -395,8 +424,18 @@ textarea {
   padding-top: .75rem;
 }
 
-.timeline-row p {
+.timeline-row p,
+.evidence-row p {
   margin: .35rem 0 0;
+}
+
+.evidence-row {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-top: 1px solid #25304a;
+  padding-top: .75rem;
 }
 
 .mono-text {
@@ -440,10 +479,11 @@ textarea {
 
   .role-management-row,
   .management-row,
-  .participant-row,
-  .match-row,
-  .status-control,
-  .management-actions {
+    .participant-row,
+    .match-row,
+    .evidence-row,
+    .status-control,
+    .management-actions {
     flex-direction: column;
   }
 

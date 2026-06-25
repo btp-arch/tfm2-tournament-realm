@@ -3,6 +3,7 @@ import {
   matchSideLabels,
   type MatchCheckInRow,
   type MatchEventRow,
+  type MatchReportRow,
   type MatchRow,
 } from "@/lib/tournaments";
 import type { Json } from "@/types/database.generated";
@@ -67,6 +68,13 @@ export function getGuestId(match: MatchRow) {
   return null;
 }
 
+export function getReportedWinnerName(
+  report: MatchReportRow | null,
+  profiles: Record<string, PublicProfile>,
+) {
+  return report ? getProfileName(profiles, report.reported_winner_id) : null;
+}
+
 function getMetadataValue(metadata: Json, key: string) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     return null;
@@ -104,6 +112,30 @@ export function describeEvent(
 
   if (event.event_type === "game_started") {
     return "Match moved to in game.";
+  }
+
+  if (event.event_type === "result_reported") {
+    const winnerName = getProfileName(profiles, getMetadataValue(event.metadata, "winner_id"));
+
+    return `${actor} reported ${winnerName ?? "a player"} as winner.`;
+  }
+
+  if (event.event_type === "confirmed") {
+    const winnerName = getProfileName(profiles, getMetadataValue(event.metadata, "winner_id"));
+
+    return `Result confirmed${winnerName ? `: ${winnerName} won` : ""}.`;
+  }
+
+  if (event.event_type === "disputed") {
+    return "Result reports were disputed.";
+  }
+
+  if (event.event_type === "resolved") {
+    const resolutionAction = getMetadataValue(event.metadata, "resolution_action");
+
+    return resolutionAction
+      ? `${actor} resolved review: ${resolutionAction.replaceAll("_", " ")}.`
+      : `${actor} resolved review.`;
   }
 
   if (event.event_type === "status_changed") {
@@ -157,7 +189,23 @@ export function getActionMessage(
   }
 
   if (match.status === "in_game") {
-    return "Match is in game. Result reporting is not part of this milestone.";
+    return "Match is in game. Both players should report the winner after the game ends.";
+  }
+
+  if (match.status === "result_reported") {
+    return "Waiting for player agreement or mismatch confirmation.";
+  }
+
+  if (match.status === "disputed" || match.status === "needs_admin") {
+    return "Organizer review is required before the bracket can continue.";
+  }
+
+  if (match.status === "replay_required") {
+    return "Tournament staff required a replay for this match.";
+  }
+
+  if (match.status === "finalized" || match.status === "confirmed") {
+    return "Result confirmed. Winner advancement has been processed.";
   }
 
   return "Players should check in, then the host creates the public friendly game.";

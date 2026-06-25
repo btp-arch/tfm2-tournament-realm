@@ -16,6 +16,19 @@ export type TournamentRoundRow = Database["public"]["Tables"]["tournament_rounds
 export type MatchRow = Database["public"]["Tables"]["matches"]["Row"];
 export type MatchCheckInRow = Database["public"]["Tables"]["match_check_ins"]["Row"];
 export type MatchEventRow = Database["public"]["Tables"]["match_events"]["Row"];
+export type MatchReportRow = Database["public"]["Tables"]["match_reports"]["Row"];
+export type MatchEvidenceRow = Database["public"]["Tables"]["match_evidence"]["Row"];
+export type DisputeRow = Database["public"]["Tables"]["disputes"]["Row"];
+
+export type MatchEvidenceType =
+  | "result_screen"
+  | "lobby_setup"
+  | "no_show"
+  | "disconnect"
+  | "chat_proof"
+  | "other";
+
+export type MatchResolutionAction = "confirm_winner" | "replay_required" | "no_contest";
 
 export const publicTournamentStatuses: TournamentStatus[] = [
   "registration_open",
@@ -74,6 +87,21 @@ export const matchStatusLabels: Record<MatchStatus, string> = {
   ready_to_setup: "Ready To Set Up",
   replay_required: "Replay Required",
   result_reported: "Result Reported",
+};
+
+export const matchEvidenceTypeLabels: Record<MatchEvidenceType, string> = {
+  chat_proof: "Chat Proof",
+  disconnect: "Disconnect",
+  lobby_setup: "Lobby Setup",
+  no_show: "No Show",
+  other: "Other",
+  result_screen: "Result Screen",
+};
+
+export const matchResolutionLabels: Record<MatchResolutionAction, string> = {
+  confirm_winner: "Confirm Winner",
+  no_contest: "No Contest",
+  replay_required: "Require Replay",
 };
 
 export const matchSideLabels: Record<MatchSideChoice, string> = {

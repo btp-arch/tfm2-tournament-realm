@@ -12,6 +12,7 @@ import {
   getMatchLabel,
   getOpponentId,
   getProfileName,
+  getReportedWinnerName,
   isMatchBye,
   isMatchWaiting,
   type PublicProfile,
@@ -21,10 +22,17 @@ import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles
 import { createClient } from "@/lib/supabase/client";
 import {
   formatDateTime,
+  matchEvidenceTypeLabels,
   matchFormatLabels,
+  matchResolutionLabels,
   matchStatusLabels,
+  type DisputeRow,
+  type MatchEvidenceRow,
+  type MatchEvidenceType,
   type MatchCheckInRow,
   type MatchEventRow,
+  type MatchReportRow,
+  type MatchResolutionAction,
   type MatchRow,
   type TournamentRoundRow,
   type TournamentRow,
@@ -36,7 +44,33 @@ type SavingAction =
   | "reset"
   | "assign-player-one"
   | "assign-player-two"
+  | "report"
+  | "confirm-report"
+  | "resolve"
   | null;
+
+const evidenceTypes: MatchEvidenceType[] = [
+  "result_screen",
+  "lobby_setup",
+  "no_show",
+  "disconnect",
+  "chat_proof",
+  "other",
+];
+
+const imageMimeTypes = ["image/png", "image/jpeg", "image/webp"];
+const maxEvidenceFileSize = 5 * 1024 * 1024;
+const maxEvidenceUploads = 3;
+
+function getEvidenceObjectPath(filePath: string) {
+  return filePath.startsWith("match-evidence/")
+    ? filePath.slice("match-evidence/".length)
+    : filePath;
+}
+
+function getSafeFileName(file: File) {
+  return file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120);
+}
 
 export function MatchRoom({ matchId }: { matchId: string }) {
   const [supabase] = useState(() => createClient());
@@ -47,8 +81,19 @@ export function MatchRoom({ matchId }: { matchId: string }) {
   const [round, setRound] = useState<TournamentRoundRow | null>(null);
   const [checkIns, setCheckIns] = useState<MatchCheckInRow[]>([]);
   const [events, setEvents] = useState<MatchEventRow[]>([]);
+  const [reports, setReports] = useState<MatchReportRow[]>([]);
+  const [evidence, setEvidence] = useState<MatchEvidenceRow[]>([]);
+  const [disputes, setDisputes] = useState<DisputeRow[]>([]);
+  const [evidenceUrls, setEvidenceUrls] = useState<Record<string, string>>({});
   const [profileMap, setProfileMap] = useState<Record<string, PublicProfile>>({});
   const [canManageMatch, setCanManageMatch] = useState(false);
+  const [reportWinnerId, setReportWinnerId] = useState("");
+  const [reportNotes, setReportNotes] = useState("");
+  const [evidenceType, setEvidenceType] = useState<MatchEvidenceType>("result_screen");
+  const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
+  const [resolutionAction, setResolutionAction] = useState<MatchResolutionAction>("confirm_winner");
+  const [resolutionWinnerId, setResolutionWinnerId] = useState("");
+  const [resolutionNote, setResolutionNote] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [savingAction, setSavingAction] = useState<SavingAction>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -91,6 +136,9 @@ export function MatchRoom({ matchId }: { matchId: string }) {
         roundResult,
         checkInsResult,
         eventsResult,
+        reportsResult,
+        evidenceResult,
+        disputesResult,
         organizerAccessResult,
       ] = await Promise.all([
         supabase
@@ -119,6 +167,27 @@ export function MatchRoom({ matchId }: { matchId: string }) {
           .order("created_at", { ascending: true }),
         currentUser
           ? supabase
+              .from("match_reports")
+              .select("*")
+              .eq("match_id", loadedMatch.id)
+              .order("created_at", { ascending: true })
+          : Promise.resolve({ data: [], error: null }),
+        currentUser
+          ? supabase
+              .from("match_evidence")
+              .select("*")
+              .eq("match_id", loadedMatch.id)
+              .order("created_at", { ascending: true })
+          : Promise.resolve({ data: [], error: null }),
+        currentUser
+          ? supabase
+              .from("disputes")
+              .select("*")
+              .eq("match_id", loadedMatch.id)
+              .order("created_at", { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+        currentUser
+          ? supabase
               .from("tournament_organizers")
               .select("tournament_id")
               .eq("tournament_id", loadedMatch.tournament_id)
@@ -131,9 +200,15 @@ export function MatchRoom({ matchId }: { matchId: string }) {
       if (roundResult.error) throw roundResult.error;
       if (checkInsResult.error) throw checkInsResult.error;
       if (eventsResult.error) throw eventsResult.error;
+      if (reportsResult.error) throw reportsResult.error;
+      if (evidenceResult.error) throw evidenceResult.error;
+      if (disputesResult.error) throw disputesResult.error;
       if (organizerAccessResult.error) throw organizerAccessResult.error;
 
       const loadedTournament = tournamentResult.data as TournamentRow | null;
+      const loadedReports = (reportsResult.data ?? []) as MatchReportRow[];
+      const loadedEvidence = (evidenceResult.data ?? []) as MatchEvidenceRow[];
+      const loadedDisputes = (disputesResult.data ?? []) as DisputeRow[];
       const managed =
         Boolean(currentUser && loadedTournament) &&
         (loadedRoles.isAdmin ||
@@ -147,6 +222,18 @@ export function MatchRoom({ matchId }: { matchId: string }) {
             loadedMatch.player_two_id,
             loadedMatch.host_user_id,
             loadedMatch.winner_id,
+            loadedMatch.finalized_by,
+            ...loadedReports.flatMap((report) => [
+              report.reporter_id,
+              report.reported_winner_id,
+            ]),
+            ...loadedEvidence.map((item) => item.uploaded_by),
+            ...loadedDisputes.flatMap((dispute) => [
+              dispute.opened_by,
+              dispute.assigned_to,
+              dispute.resolved_by,
+              dispute.resolution_winner_id,
+            ]),
             ...(checkInsResult.data ?? []).flatMap((checkIn) => [
               checkIn.user_id,
               checkIn.checked_in_by,
@@ -179,6 +266,21 @@ export function MatchRoom({ matchId }: { matchId: string }) {
         );
       }
 
+      const signedEvidenceUrls: Record<string, string> = {};
+      if (loadedEvidence.length > 0) {
+        await Promise.all(
+          loadedEvidence.map(async (item) => {
+            const { data: signedData } = await supabase.storage
+              .from("match-evidence")
+              .createSignedUrl(getEvidenceObjectPath(item.file_path), 60 * 60);
+
+            if (signedData?.signedUrl) {
+              signedEvidenceUrls[item.id] = signedData.signedUrl;
+            }
+          }),
+        );
+      }
+
       setUser(currentUser);
       setRoles(loadedRoles);
       setMatch(loadedMatch);
@@ -186,8 +288,23 @@ export function MatchRoom({ matchId }: { matchId: string }) {
       setRound(roundResult.data as TournamentRoundRow | null);
       setCheckIns((checkInsResult.data ?? []) as MatchCheckInRow[]);
       setEvents((eventsResult.data ?? []) as MatchEventRow[]);
+      setReports(loadedReports);
+      setEvidence(loadedEvidence);
+      setDisputes(loadedDisputes);
+      setEvidenceUrls(signedEvidenceUrls);
       setProfileMap(loadedProfileMap);
       setCanManageMatch(managed);
+
+      const ownLoadedReport = currentUser
+        ? loadedReports.find((report) => report.reporter_id === currentUser.id)
+        : null;
+      if (ownLoadedReport) {
+        setReportWinnerId(ownLoadedReport.reported_winner_id);
+        setReportNotes(ownLoadedReport.notes ?? "");
+      } else if (loadedMatch.player_one_id) {
+        setReportWinnerId(loadedMatch.player_one_id);
+      }
+      setResolutionWinnerId(loadedMatch.winner_id ?? loadedMatch.player_one_id ?? "");
     } catch (caughtError) {
       logError("Match room load failed.", caughtError);
       setError(formatError(caughtError, "Unable to load match room."));
@@ -222,7 +339,43 @@ export function MatchRoom({ matchId }: { matchId: string }) {
   const hostName = match ? getProfileName(profileMap, match.host_user_id) : null;
   const guestId = match ? getGuestId(match) : null;
   const guestName = getProfileName(profileMap, guestId);
+  const playerOneName = match ? getProfileName(profileMap, match.player_one_id) ?? "Player A" : "Player A";
+  const playerTwoName = match ? getProfileName(profileMap, match.player_two_id) ?? "Player B" : "Player B";
   const lobbyName = guestName ?? "Opponent display name";
+  const playerOneReport = match
+    ? reports.find((report) => report.reporter_id === match.player_one_id) ?? null
+    : null;
+  const playerTwoReport = match
+    ? reports.find((report) => report.reporter_id === match.player_two_id) ?? null
+    : null;
+  const ownReport =
+    user && match ? reports.find((report) => report.reporter_id === user.id) ?? null : null;
+  const openDispute =
+    disputes.find((dispute) => dispute.status === "open" || dispute.status === "under_review") ??
+    null;
+  const reportsMismatch = Boolean(
+    playerOneReport &&
+      playerTwoReport &&
+      playerOneReport.reported_winner_id !== playerTwoReport.reported_winner_id,
+  );
+  const bothReportsSubmitted = Boolean(playerOneReport && playerTwoReport);
+  const waitingForOpponentReport = Boolean(ownReport && !bothReportsSubmitted);
+  const ownReportEvidence = ownReport
+    ? evidence.filter((item) => item.match_report_id === ownReport.id)
+    : [];
+  const canReportResult = Boolean(
+    match &&
+      isParticipant &&
+      match.player_one_id &&
+      match.player_two_id &&
+      (match.status === "in_game" || match.status === "result_reported"),
+  );
+  const canConfirmMismatch = Boolean(
+    canReportResult &&
+      ownReport &&
+      reportsMismatch &&
+      ownReport.confirmation_state !== "confirmed_current",
+  );
   const actionMessage = match
     ? getActionMessage(
         match,
@@ -349,6 +502,130 @@ export function MatchRoom({ matchId }: { matchId: string }) {
         }
       },
       "Host assignment updated.",
+    );
+  }
+
+  async function uploadEvidenceFiles(report: MatchReportRow, files: File[]) {
+    if (!match || !user || files.length === 0) {
+      return;
+    }
+
+    const existingCount = evidence.filter((item) => item.match_report_id === report.id).length;
+    if (existingCount + files.length > maxEvidenceUploads) {
+      throw new Error("Each player report can have at most 3 evidence uploads.");
+    }
+
+    for (const file of files) {
+      if (!imageMimeTypes.includes(file.type)) {
+        throw new Error("Evidence must be a PNG, JPG/JPEG, or WEBP image.");
+      }
+
+      if (file.size > maxEvidenceFileSize) {
+        throw new Error("Evidence images must be 5 MB or smaller.");
+      }
+
+      const safeName = getSafeFileName(file);
+      const objectPath = `${match.id}/${user.id}/${report.id}/${crypto.randomUUID()}-${safeName}`;
+      const filePath = `match-evidence/${objectPath}`;
+      const { error: uploadError } = await supabase.storage
+        .from("match-evidence")
+        .upload(objectPath, file, {
+          contentType: file.type,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { error: evidenceError } = await supabase.from("match_evidence").insert({
+        match_id: match.id,
+        match_report_id: report.id,
+        uploaded_by: user.id,
+        storage_path: filePath,
+        file_path: filePath,
+        file_name: file.name,
+        mime_type: file.type,
+        file_size_bytes: file.size,
+        evidence_type: evidenceType,
+        notes: reportNotes.trim() || null,
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+
+      if (evidenceError) {
+        throw evidenceError;
+      }
+    }
+  }
+
+  async function submitResultReport() {
+    if (!match || !canReportResult || !reportWinnerId) {
+      return;
+    }
+
+    await runMatchAction(
+      "report",
+      async () => {
+        const files = evidenceFiles.slice(0, maxEvidenceUploads);
+        const { data: report, error: rpcError } = await supabase.rpc("submit_match_report", {
+          target_match: match.id,
+          reported_winner: reportWinnerId,
+          report_notes: reportNotes.trim() || null,
+        });
+
+        if (rpcError) {
+          throw rpcError;
+        }
+
+        if (report) {
+          await uploadEvidenceFiles(report as MatchReportRow, files);
+        }
+      },
+      "Result report submitted.",
+    );
+    setEvidenceFiles([]);
+  }
+
+  async function confirmCurrentReport() {
+    if (!match || !canConfirmMismatch) {
+      return;
+    }
+
+    await runMatchAction(
+      "confirm-report",
+      async () => {
+        const { error: rpcError } = await supabase.rpc("confirm_match_report", {
+          target_match: match.id,
+        });
+
+        if (rpcError) {
+          throw rpcError;
+        }
+      },
+      "Report confirmation saved.",
+    );
+  }
+
+  async function resolveDispute() {
+    if (!match || !canManageMatch) {
+      return;
+    }
+
+    await runMatchAction(
+      "resolve",
+      async () => {
+        const { error: rpcError } = await supabase.rpc("resolve_match_dispute", {
+          target_match: match.id,
+          resolution_action: resolutionAction,
+          selected_winner: resolutionAction === "confirm_winner" ? resolutionWinnerId : null,
+          resolution_notes: resolutionNote.trim() || null,
+        });
+
+        if (rpcError) {
+          throw rpcError;
+        }
+      },
+      "Match review resolved.",
     );
   }
 
@@ -517,9 +794,188 @@ export function MatchRoom({ matchId }: { matchId: string }) {
           <p>Format: {matchFormatLabels[match.format]}.</p>
           <p>For BO3/BO5, if TFM2 gives the previous game loser side selection, follow the in-game rule instead of overriding it here.</p>
           <p>After creating the lobby, the host clicks Match Created.</p>
-          <p>Do not report winners here yet. Result reporting, evidence, and disputes are intentionally out of scope.</p>
         </div>
       </section>
+
+      <section className="card">
+        <div className="section-heading">
+          <div>
+            <h2>Result Reporting</h2>
+            <p className="muted">
+              Both players report the winner. Matching reports finalize automatically; confirmed mismatches go to organizer review.
+            </p>
+          </div>
+          {match.winner_id ? (
+            <span className="badge">
+              Winner: {getProfileName(profileMap, match.winner_id) ?? "Player"}
+            </span>
+          ) : null}
+        </div>
+
+        {isMatchBye(match) || isMatchWaiting(match) ? (
+          <p className="muted">This match does not need result reporting yet.</p>
+        ) : match.status === "finalized" || match.status === "confirmed" ? (
+          <p className="notice">
+            Result confirmed. {match.winner_id ? `${getProfileName(profileMap, match.winner_id) ?? "Winner"} advanced.` : "No winner was advanced."}
+          </p>
+        ) : openDispute ? (
+          <p className="error">A dispute is open for organizer review.</p>
+        ) : reportsMismatch ? (
+          <p className="error">Reports do not match. Please confirm or change your report.</p>
+        ) : waitingForOpponentReport ? (
+          <p className="notice">Your report was submitted. Waiting for opponent report.</p>
+        ) : match.status === "replay_required" ? (
+          <p className="notice">Tournament staff required a replay. Use this room again after the replay.</p>
+        ) : null}
+
+        <dl className="meta-grid">
+          <div>
+            <dt>{playerOneName}</dt>
+            <dd>
+              {playerOneReport
+                ? `${getReportedWinnerName(playerOneReport, profileMap) ?? "Player"} reported${playerOneReport.confirmation_state === "confirmed_current" ? " and confirmed" : ""}`
+                : "No report"}
+            </dd>
+          </div>
+          <div>
+            <dt>{playerTwoName}</dt>
+            <dd>
+              {playerTwoReport
+                ? `${getReportedWinnerName(playerTwoReport, profileMap) ?? "Player"} reported${playerTwoReport.confirmation_state === "confirmed_current" ? " and confirmed" : ""}`
+                : "No report"}
+            </dd>
+          </div>
+        </dl>
+
+        {isParticipant ? (
+          <div className="result-panel">
+            <div className="form-grid">
+              <label htmlFor="reported-winner">
+                Winner
+                <select
+                  id="reported-winner"
+                  disabled={!canReportResult}
+                  value={reportWinnerId}
+                  onChange={(event) => setReportWinnerId(event.target.value)}
+                >
+                  {match.player_one_id ? (
+                    <option value={match.player_one_id}>{playerOneName}</option>
+                  ) : null}
+                  {match.player_two_id ? (
+                    <option value={match.player_two_id}>{playerTwoName}</option>
+                  ) : null}
+                </select>
+              </label>
+              <label htmlFor="evidence-type">
+                Evidence Type
+                <select
+                  id="evidence-type"
+                  disabled={!canReportResult}
+                  value={evidenceType}
+                  onChange={(event) => setEvidenceType(event.target.value as MatchEvidenceType)}
+                >
+                  {evidenceTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {matchEvidenceTypeLabels[type]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <label className="wide-field" htmlFor="report-notes">
+              Notes
+              <textarea
+                id="report-notes"
+                disabled={!canReportResult}
+                maxLength={1000}
+                rows={3}
+                value={reportNotes}
+                onChange={(event) => setReportNotes(event.target.value)}
+              />
+            </label>
+
+            <label className="wide-field" htmlFor="evidence-files">
+              Image Evidence
+              <input
+                accept="image/png,image/jpeg,image/webp"
+                disabled={!canReportResult || ownReportEvidence.length >= maxEvidenceUploads}
+                id="evidence-files"
+                multiple
+                type="file"
+                onChange={(event) =>
+                  setEvidenceFiles(Array.from(event.target.files ?? []).slice(0, maxEvidenceUploads))
+                }
+              />
+            </label>
+            <p className="muted">
+              Optional PNG, JPG/JPEG, or WEBP images. Max 5 MB each, 3 uploads per report.
+            </p>
+
+            <div className="match-action-grid">
+              <button
+                className="button"
+                disabled={!canReportResult || !reportWinnerId || savingAction === "report"}
+                type="button"
+                onClick={submitResultReport}
+              >
+                {savingAction === "report" ? "Submitting..." : ownReport ? "Update Report" : "Submit Report"}
+              </button>
+              {canConfirmMismatch ? (
+                <button
+                  className="button secondary-button"
+                  disabled={savingAction === "confirm-report"}
+                  type="button"
+                  onClick={confirmCurrentReport}
+                >
+                  {savingAction === "confirm-report" ? "Confirming..." : "Confirm Current Report"}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <p className="muted">Only match players can submit or confirm result reports.</p>
+        )}
+
+        {bothReportsSubmitted && !reportsMismatch && !match.winner_id ? (
+          <p className="muted">Reports match and finalization is processing. Refresh if the winner is not shown.</p>
+        ) : null}
+      </section>
+
+      {evidence.length > 0 ? (
+        <section className="card">
+          <h2>Evidence</h2>
+          <div className="evidence-list">
+            {evidence.map((item) => (
+              <article className="evidence-row" key={item.id}>
+                <div>
+                  <strong>{item.file_name}</strong>
+                  <p className="muted">
+                    {matchEvidenceTypeLabels[item.evidence_type as MatchEvidenceType] ?? "Evidence"} from{" "}
+                    {getProfileName(profileMap, item.uploaded_by) ?? "Player"}
+                  </p>
+                  <p className="muted">
+                    Expires {formatDateTime(item.expires_at)}
+                    {item.retained_by_admin ? ", retained by admin" : ""}
+                  </p>
+                </div>
+                {evidenceUrls[item.id] ? (
+                  <a
+                    className="button secondary-button button-link"
+                    href={evidenceUrls[item.id]}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    View
+                  </a>
+                ) : (
+                  <span className="muted">No view link</span>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {canManageMatch ? (
         <section className="card">
@@ -565,6 +1021,77 @@ export function MatchRoom({ matchId }: { matchId: string }) {
               onClick={resetMatchRoom}
             >
               {savingAction === "reset" ? "Resetting..." : "Reset Match Room"}
+            </button>
+          </div>
+
+          <div className="management-actions">
+            <div>
+              <h3>Result Review</h3>
+              <p className="muted">
+                Staff can confirm a winner, require replay, or mark no contest when player reports need review.
+              </p>
+              {openDispute ? (
+                <p className="error">{openDispute.reason}</p>
+              ) : reportsMismatch ? (
+                <p className="muted">Reports mismatch, but both players have not confirmed different winners yet.</p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="form-grid">
+            <label htmlFor="resolution-action">
+              Resolution
+              <select
+                id="resolution-action"
+                value={resolutionAction}
+                onChange={(event) => setResolutionAction(event.target.value as MatchResolutionAction)}
+              >
+                {Object.entries(matchResolutionLabels).map(([action, label]) => (
+                  <option key={action} value={action}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label htmlFor="resolution-winner">
+              Winner
+              <select
+                id="resolution-winner"
+                disabled={resolutionAction !== "confirm_winner"}
+                value={resolutionWinnerId}
+                onChange={(event) => setResolutionWinnerId(event.target.value)}
+              >
+                {match.player_one_id ? (
+                  <option value={match.player_one_id}>{playerOneName}</option>
+                ) : null}
+                {match.player_two_id ? (
+                  <option value={match.player_two_id}>{playerTwoName}</option>
+                ) : null}
+              </select>
+            </label>
+          </div>
+          <label className="wide-field" htmlFor="resolution-note">
+            Resolution Note
+            <textarea
+              id="resolution-note"
+              maxLength={1000}
+              rows={3}
+              value={resolutionNote}
+              onChange={(event) => setResolutionNote(event.target.value)}
+            />
+          </label>
+          <div className="match-action-grid">
+            <button
+              className="button"
+              disabled={
+                savingAction === "resolve" ||
+                match.status === "finalized" ||
+                (resolutionAction === "confirm_winner" && !resolutionWinnerId)
+              }
+              type="button"
+              onClick={resolveDispute}
+            >
+              {savingAction === "resolve" ? "Resolving..." : "Resolve Match"}
             </button>
           </div>
         </section>

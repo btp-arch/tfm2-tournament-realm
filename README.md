@@ -126,7 +126,18 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - Admins have status overrides plus force controls for opening check-in and starting tournaments. If an admin force-starts a tournament with registered players but no check-ins, the UI requires confirmation before marking all registered players checked in and shows how many players will be included.
 - Admins can close registration by setting status to `registration_closed`, and can reopen registration by setting status to `registration_open` only when the registration close time is in the future.
 - `/organizer` groups managed tournaments by status and links to manage/edit.
+- `/organizer` flags tournaments with result reports or disputes needing review.
 - `/admin` lists all tournaments with organizer, status, and registered participant count.
+
+### Results, evidence, and disputes
+
+- Match rooms support player result reporting after the match reaches `In Game`.
+- Both players report the winner. If reports match, the result finalizes automatically and the winner advances in the single-elimination bracket.
+- If reports differ, both players see a mismatch confirmation state. A player can change their report; if reports align, the match finalizes.
+- If both players confirm different winners, a dispute opens for organizer/admin review.
+- Staff can resolve review by confirming a winner, requiring replay, or marking no contest. Confirming a winner finalizes the match and advances that player.
+- Evidence uploads use the private `match-evidence` Supabase Storage bucket. Images are limited to PNG, JPG/JPEG, or WEBP, 5 MB each, and 3 uploads per player report.
+- Evidence metadata stores match/report/user, type, file path/name, MIME type, size, notes, `expires_at`, and `retained_by_admin`. The MVP records a 30-day expiration timestamp but does not run automatic cleanup yet.
 
 ### Manual tournament smoke test
 
@@ -197,8 +208,26 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 10. As the assigned host, create a public friendly game in TFM2 using the shown lobby name, then click Match Created.
 11. Confirm the match status becomes In Game without a guest joined click.
 12. Sign in as a non-participant and confirm public match info is visible but player action buttons are unavailable.
-13. Sign in as organizer/admin and confirm staff can reset the match room, assign/reassign host, and mark Match Created without any result reporting controls.
+13. Sign in as organizer/admin and confirm staff can reset the match room, assign/reassign host, mark Match Created, and resolve match review.
 14. Open BYE/TBD matches and confirm they clearly show that no player match-room action is required yet.
+
+### Manual result reporting smoke test
+
+1. Apply migrations and regenerate types for your target environment.
+2. Start the app with `npm run dev`.
+3. Use an active tournament with a generated match between two signed-in player accounts.
+4. Move the match to `In Game` through match-room check-in and host `Match Created`.
+5. As Player A, report Player A as winner and optionally upload one PNG/JPG/WEBP screenshot.
+6. As Player B, report Player A as winner.
+7. Confirm the match finalizes, shows the winner, and advances the winner to the next-round TBD slot or completes the tournament if it was the final.
+8. On another match, have Player A report Player A and Player B report Player B.
+9. Confirm both players see “Reports do not match. Please confirm or change your report.”
+10. Have one player change their report to match the other and confirm the match auto-finalizes.
+11. Repeat the mismatch path, then have both players confirm their different reports.
+12. Confirm the match becomes disputed and appears as needing review on `/organizer`.
+13. As organizer/admin, resolve by confirming a winner and verify advancement.
+14. Confirm participants/staff can open signed evidence links.
+15. Confirm non-participants cannot upload evidence, mutate reports, or view private evidence links.
 
 ## First admin bootstrap
 

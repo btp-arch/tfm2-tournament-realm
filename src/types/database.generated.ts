@@ -48,8 +48,13 @@ export type Database = {
           opened_by: string
           reason: string
           resolution: string | null
+          resolution_note: string | null
+          resolution_type: string | null
+          resolution_winner_id: string | null
           resolved_at: string | null
+          resolved_by: string | null
           status: Database["public"]["Enums"]["dispute_status"]
+          updated_at: string
         }
         Insert: {
           assigned_to?: string | null
@@ -59,8 +64,13 @@ export type Database = {
           opened_by: string
           reason: string
           resolution?: string | null
+          resolution_note?: string | null
+          resolution_type?: string | null
+          resolution_winner_id?: string | null
           resolved_at?: string | null
+          resolved_by?: string | null
           status?: Database["public"]["Enums"]["dispute_status"]
+          updated_at?: string
         }
         Update: {
           assigned_to?: string | null
@@ -70,8 +80,13 @@ export type Database = {
           opened_by?: string
           reason?: string
           resolution?: string | null
+          resolution_note?: string | null
+          resolution_type?: string | null
+          resolution_winner_id?: string | null
           resolved_at?: string | null
+          resolved_by?: string | null
           status?: Database["public"]["Enums"]["dispute_status"]
+          updated_at?: string
         }
         Relationships: [
           {
@@ -105,6 +120,34 @@ export type Database = {
           {
             foreignKeyName: "disputes_opened_by_fkey"
             columns: ["opened_by"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "disputes_resolution_winner_id_fkey"
+            columns: ["resolution_winner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "disputes_resolution_winner_id_fkey"
+            columns: ["resolution_winner_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "disputes_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "disputes_resolved_by_fkey"
+            columns: ["resolved_by"]
             isOneToOne: false
             referencedRelation: "public_profiles"
             referencedColumns: ["id"]
@@ -279,28 +322,62 @@ export type Database = {
         Row: {
           caption: string | null
           created_at: string
+          evidence_type: string
+          expires_at: string
+          file_name: string
+          file_path: string
+          file_size_bytes: number
           id: string
+          match_id: string
           match_report_id: string
+          mime_type: string
+          notes: string | null
+          retained_by_admin: boolean
           storage_path: string
           uploaded_by: string
         }
         Insert: {
           caption?: string | null
           created_at?: string
+          evidence_type?: string
+          expires_at?: string
+          file_name: string
+          file_path: string
+          file_size_bytes: number
           id?: string
+          match_id: string
           match_report_id: string
+          mime_type: string
+          notes?: string | null
+          retained_by_admin?: boolean
           storage_path: string
           uploaded_by: string
         }
         Update: {
           caption?: string | null
           created_at?: string
+          evidence_type?: string
+          expires_at?: string
+          file_name?: string
+          file_path?: string
+          file_size_bytes?: number
           id?: string
+          match_id?: string
           match_report_id?: string
+          mime_type?: string
+          notes?: string | null
+          retained_by_admin?: boolean
           storage_path?: string
           uploaded_by?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "match_evidence_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "match_evidence_match_report_id_fkey"
             columns: ["match_report_id"]
@@ -326,34 +403,52 @@ export type Database = {
       }
       match_reports: {
         Row: {
+          changed_at: string | null
+          confirmation_state: string
+          confirmed_at: string | null
           created_at: string
           id: string
           match_id: string
           notes: string | null
           outcome: Database["public"]["Enums"]["report_outcome"]
+          report_version: number
+          reported_winner_id: string
           reporter_id: string
           score_player_one: number
           score_player_two: number
+          updated_at: string
         }
         Insert: {
+          changed_at?: string | null
+          confirmation_state?: string
+          confirmed_at?: string | null
           created_at?: string
           id?: string
           match_id: string
           notes?: string | null
           outcome: Database["public"]["Enums"]["report_outcome"]
+          report_version?: number
+          reported_winner_id: string
           reporter_id: string
           score_player_one?: number
           score_player_two?: number
+          updated_at?: string
         }
         Update: {
+          changed_at?: string | null
+          confirmation_state?: string
+          confirmed_at?: string | null
           created_at?: string
           id?: string
           match_id?: string
           notes?: string | null
           outcome?: Database["public"]["Enums"]["report_outcome"]
+          report_version?: number
+          reported_winner_id?: string
           reporter_id?: string
           score_player_one?: number
           score_player_two?: number
+          updated_at?: string
         }
         Relationships: [
           {
@@ -361,6 +456,20 @@ export type Database = {
             columns: ["match_id"]
             isOneToOne: false
             referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_reports_reported_winner_id_fkey"
+            columns: ["reported_winner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_reports_reported_winner_id_fkey"
+            columns: ["reported_winner_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -384,6 +493,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          finalized_at: string | null
+          finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
           guest_joined_at: string | null
@@ -398,6 +509,7 @@ export type Database = {
           player_two_id: string | null
           player_two_seed: number | null
           player_two_slot: number | null
+          result_reported_at: string | null
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -412,6 +524,8 @@ export type Database = {
           bracket_position?: number | null
           check_in_opens_at?: string | null
           created_at?: string
+          finalized_at?: string | null
+          finalized_by?: string | null
           format?: Database["public"]["Enums"]["match_format"]
           game_created_at?: string | null
           guest_joined_at?: string | null
@@ -426,6 +540,7 @@ export type Database = {
           player_two_id?: string | null
           player_two_seed?: number | null
           player_two_slot?: number | null
+          result_reported_at?: string | null
           round_id?: string | null
           round_number?: number
           scheduled_at?: string | null
@@ -440,6 +555,8 @@ export type Database = {
           bracket_position?: number | null
           check_in_opens_at?: string | null
           created_at?: string
+          finalized_at?: string | null
+          finalized_by?: string | null
           format?: Database["public"]["Enums"]["match_format"]
           game_created_at?: string | null
           guest_joined_at?: string | null
@@ -454,6 +571,7 @@ export type Database = {
           player_two_id?: string | null
           player_two_seed?: number | null
           player_two_slot?: number | null
+          result_reported_at?: string | null
           round_id?: string | null
           round_number?: number
           scheduled_at?: string | null
@@ -465,6 +583,20 @@ export type Database = {
           winner_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "matches_finalized_by_fkey"
+            columns: ["finalized_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_finalized_by_fkey"
+            columns: ["finalized_by"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "matches_host_user_id_fkey"
             columns: ["host_user_id"]
@@ -1063,12 +1195,18 @@ export type Database = {
       }
     }
     Functions: {
-      assign_match_host: {
-        Args: { selected_host: string; target_match: string }
+      advance_single_elimination_winner: {
+        Args: {
+          actor: string
+          advancing_winner: string
+          completed_match: Database["public"]["Tables"]["matches"]["Row"]
+        }
         Returns: {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          finalized_at: string | null
+          finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
           guest_joined_at: string | null
@@ -1083,6 +1221,47 @@ export type Database = {
           player_two_id: string | null
           player_two_seed: number | null
           player_two_slot: number | null
+          result_reported_at: string | null
+          round_id: string | null
+          round_number: number
+          scheduled_at: string | null
+          setup_deadline_at: string | null
+          stage_id: string | null
+          status: Database["public"]["Enums"]["match_status"]
+          tournament_id: string
+          updated_at: string
+          winner_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "matches"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      assign_match_host: {
+        Args: { selected_host: string; target_match: string }
+        Returns: {
+          bracket_position: number | null
+          check_in_opens_at: string | null
+          created_at: string
+          finalized_at: string | null
+          finalized_by: string | null
+          format: Database["public"]["Enums"]["match_format"]
+          game_created_at: string | null
+          guest_joined_at: string | null
+          host_side_choice: Database["public"]["Enums"]["side_choice"] | null
+          host_user_id: string | null
+          id: string
+          join_deadline_at: string | null
+          match_number: number | null
+          player_one_id: string | null
+          player_one_seed: number | null
+          player_one_slot: number | null
+          player_two_id: string | null
+          player_two_seed: number | null
+          player_two_slot: number | null
+          result_reported_at: string | null
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1115,6 +1294,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          finalized_at: string | null
+          finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
           guest_joined_at: string | null
@@ -1129,6 +1310,7 @@ export type Database = {
           player_two_id: string | null
           player_two_seed: number | null
           player_two_slot: number | null
+          result_reported_at: string | null
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1155,6 +1337,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          finalized_at: string | null
+          finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
           guest_joined_at: string | null
@@ -1169,6 +1353,132 @@ export type Database = {
           player_two_id: string | null
           player_two_seed: number | null
           player_two_slot: number | null
+          result_reported_at: string | null
+          round_id: string | null
+          round_number: number
+          scheduled_at: string | null
+          setup_deadline_at: string | null
+          stage_id: string | null
+          status: Database["public"]["Enums"]["match_status"]
+          tournament_id: string
+          updated_at: string
+          winner_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "matches"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      confirm_match_report: {
+        Args: { target_match: string }
+        Returns: {
+          bracket_position: number | null
+          check_in_opens_at: string | null
+          created_at: string
+          finalized_at: string | null
+          finalized_by: string | null
+          format: Database["public"]["Enums"]["match_format"]
+          game_created_at: string | null
+          guest_joined_at: string | null
+          host_side_choice: Database["public"]["Enums"]["side_choice"] | null
+          host_user_id: string | null
+          id: string
+          join_deadline_at: string | null
+          match_number: number | null
+          player_one_id: string | null
+          player_one_seed: number | null
+          player_one_slot: number | null
+          player_two_id: string | null
+          player_two_seed: number | null
+          player_two_slot: number | null
+          result_reported_at: string | null
+          round_id: string | null
+          round_number: number
+          scheduled_at: string | null
+          setup_deadline_at: string | null
+          stage_id: string | null
+          status: Database["public"]["Enums"]["match_status"]
+          tournament_id: string
+          updated_at: string
+          winner_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "matches"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      evaluate_match_reports: {
+        Args: { actor: string; target_match: string }
+        Returns: {
+          bracket_position: number | null
+          check_in_opens_at: string | null
+          created_at: string
+          finalized_at: string | null
+          finalized_by: string | null
+          format: Database["public"]["Enums"]["match_format"]
+          game_created_at: string | null
+          guest_joined_at: string | null
+          host_side_choice: Database["public"]["Enums"]["side_choice"] | null
+          host_user_id: string | null
+          id: string
+          join_deadline_at: string | null
+          match_number: number | null
+          player_one_id: string | null
+          player_one_seed: number | null
+          player_one_slot: number | null
+          player_two_id: string | null
+          player_two_seed: number | null
+          player_two_slot: number | null
+          result_reported_at: string | null
+          round_id: string | null
+          round_number: number
+          scheduled_at: string | null
+          setup_deadline_at: string | null
+          stage_id: string | null
+          status: Database["public"]["Enums"]["match_status"]
+          tournament_id: string
+          updated_at: string
+          winner_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "matches"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      finalize_match_winner: {
+        Args: {
+          actor: string
+          selected_winner: string
+          source: string
+          target_match: string
+        }
+        Returns: {
+          bracket_position: number | null
+          check_in_opens_at: string | null
+          created_at: string
+          finalized_at: string | null
+          finalized_by: string | null
+          format: Database["public"]["Enums"]["match_format"]
+          game_created_at: string | null
+          guest_joined_at: string | null
+          host_side_choice: Database["public"]["Enums"]["side_choice"] | null
+          host_user_id: string | null
+          id: string
+          join_deadline_at: string | null
+          match_number: number | null
+          player_one_id: string | null
+          player_one_seed: number | null
+          player_one_slot: number | null
+          player_two_id: string | null
+          player_two_seed: number | null
+          player_two_slot: number | null
+          result_reported_at: string | null
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1203,6 +1513,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          finalized_at: string | null
+          finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
           guest_joined_at: string | null
@@ -1217,6 +1529,7 @@ export type Database = {
           player_two_id: string | null
           player_two_seed: number | null
           player_two_slot: number | null
+          result_reported_at: string | null
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1240,6 +1553,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          finalized_at: string | null
+          finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
           guest_joined_at: string | null
@@ -1254,6 +1569,7 @@ export type Database = {
           player_two_id: string | null
           player_two_seed: number | null
           player_two_slot: number | null
+          result_reported_at: string | null
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1271,12 +1587,21 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      report_outcome_for_winner: {
+        Args: {
+          target_match: Database["public"]["Tables"]["matches"]["Row"]
+          winner: string
+        }
+        Returns: Database["public"]["Enums"]["report_outcome"]
+      }
       reset_match_room: {
         Args: { target_match: string }
         Returns: {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          finalized_at: string | null
+          finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
           guest_joined_at: string | null
@@ -1291,6 +1616,7 @@ export type Database = {
           player_two_id: string | null
           player_two_seed: number | null
           player_two_slot: number | null
+          result_reported_at: string | null
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1304,6 +1630,80 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "matches"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      resolve_match_dispute: {
+        Args: {
+          resolution_action: string
+          resolution_notes?: string
+          selected_winner?: string
+          target_match: string
+        }
+        Returns: {
+          bracket_position: number | null
+          check_in_opens_at: string | null
+          created_at: string
+          finalized_at: string | null
+          finalized_by: string | null
+          format: Database["public"]["Enums"]["match_format"]
+          game_created_at: string | null
+          guest_joined_at: string | null
+          host_side_choice: Database["public"]["Enums"]["side_choice"] | null
+          host_user_id: string | null
+          id: string
+          join_deadline_at: string | null
+          match_number: number | null
+          player_one_id: string | null
+          player_one_seed: number | null
+          player_one_slot: number | null
+          player_two_id: string | null
+          player_two_seed: number | null
+          player_two_slot: number | null
+          result_reported_at: string | null
+          round_id: string | null
+          round_number: number
+          scheduled_at: string | null
+          setup_deadline_at: string | null
+          stage_id: string | null
+          status: Database["public"]["Enums"]["match_status"]
+          tournament_id: string
+          updated_at: string
+          winner_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "matches"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      submit_match_report: {
+        Args: {
+          report_notes?: string
+          reported_winner: string
+          target_match: string
+        }
+        Returns: {
+          changed_at: string | null
+          confirmation_state: string
+          confirmed_at: string | null
+          created_at: string
+          id: string
+          match_id: string
+          notes: string | null
+          outcome: Database["public"]["Enums"]["report_outcome"]
+          report_version: number
+          reported_winner_id: string
+          reporter_id: string
+          score_player_one: number
+          score_player_two: number
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "match_reports"
           isOneToOne: true
           isSetofReturn: false
         }
