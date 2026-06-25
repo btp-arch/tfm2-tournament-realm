@@ -1,11 +1,13 @@
-# Next Milestone Checklist: Tournament Discovery and Free Registration Foundation
+# Next Milestone Checklist: Tournament Creation and Registration
 
-- [ ] Apply the profile contact fields migration to local and hosted Supabase.
+- [ ] Apply role-management migrations to local and hosted Supabase.
 - [ ] Regenerate database types after migrations are applied.
-- [ ] Add read-only tournament discovery from published tournaments.
-- [ ] Add tournament detail pages backed by Supabase reads.
-- [ ] Add free-entry registration intent for signed-in players.
-- [ ] Keep tournament creation and organizer management behind placeholders until the organizer milestone.
-- [ ] Keep match rooms, result reporting, Discord bot features, and automated verification out of scope.
-- [ ] Add manual QA for logged-out browsing, signed-in player registration, and RLS behavior.
+- [ ] Design the free-entry tournament creation form for organizers.
+- [ ] Add organizer-only tournament creation backed by Supabase writes.
+- [ ] Add tournament edit controls for creators/admins.
+- [ ] Add published tournament discovery and detail views backed by Supabase reads.
+- [ ] Add free-entry player registration for signed-in users.
+- [ ] Add organizer registration review controls.
+- [ ] Keep match rooms, result reporting, Discord bot features, automated verification, and monetization out of scope.
+- [ ] Add manual QA for player, organizer, admin, and RLS behavior.
 - [ ] Run `npm run lint` and `npm run typecheck`.

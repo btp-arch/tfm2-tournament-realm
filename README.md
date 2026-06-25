@@ -77,6 +77,8 @@ Enable email/password authentication in Supabase Auth. If email confirmations ar
 - `http://localhost:3000`
 - `http://localhost:3000/auth`
 - `http://localhost:3000/profile`
+- `http://localhost:3000/organizer`
+- `http://localhost:3000/admin`
 
 The app uses the public Supabase URL and anon key from `.env.local`. Do not put service-role keys in the browser environment.
 
@@ -87,7 +89,29 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - `/profile` redirects logged-out visitors to `/auth?redirectTo=/profile`.
 - On successful sign-in, sign-up with an active session, or first profile load, app code calls `ensureProfile` to create the authenticated user's `profiles` row if it does not already exist.
 - Profile auto-creation is handled in app code instead of a database trigger for this milestone, so profile defaults can be kept near the auth/profile UI. The `profiles` table still uses RLS and only allows users to insert or update their own row.
-- Player is the default experience. Organizer/admin role detection reads `platform_roles`; organizer/admin workflows remain placeholders.
+- Player is the default experience. Organizer/admin role detection reads `platform_roles`.
+- `/organizer` requires organizer or admin access and shows the Milestone 3 tournament creation placeholder.
+- `/admin` requires admin access and includes profile search plus organizer/admin role management.
+
+## First admin bootstrap
+
+Role management is intentionally admin-only, so a fresh environment needs one manual bootstrap if no admin exists yet. After the intended admin account has signed up, run this SQL with database owner privileges, replacing the placeholder email and display name:
+
+```sql
+insert into public.profiles (id, display_name)
+select id, 'Platform Admin'
+from auth.users
+where email = 'admin@example.com'
+on conflict (id) do nothing;
+
+insert into public.platform_roles (user_id, role, granted_by)
+select id, 'admin', null
+from auth.users
+where email = 'admin@example.com'
+on conflict (user_id, role) do nothing;
+```
+
+After that admin signs in, use `/admin` for future organizer/admin grants. The database prevents removal of the final remaining admin role.
 
 ## Database types
 
@@ -113,7 +137,10 @@ npm run typecheck
 3. If Supabase requires email confirmation, confirm the user in Supabase Auth or through the email link, then sign in.
 4. Confirm the nav changes from `Sign In` to `Profile` and `Sign Out`.
 5. Open `/profile`, edit display name, Discord username, and Steam profile URL, then save.
-6. Sign out and confirm `/profile` sends the browser back to sign in.
+6. Confirm a player account does not see Organizer or Admin links in the nav.
+7. Bootstrap or grant an admin role, then confirm `/admin` loads role management.
+8. Grant an organizer role to a test profile, then confirm that account can open `/organizer`.
+9. Sign out and confirm `/profile` sends the browser back to sign in.
 
 ## GUI Git option
 

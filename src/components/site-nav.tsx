@@ -4,14 +4,12 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
+import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
 
 const links = [
   ["Home", "/"],
   ["Tournaments", "/tournaments"],
-  ["Create", "/tournaments/create"],
-  ["Organizer", "/organizer"],
-  ["Admin", "/admin"],
   ["Rules", "/rules"],
   ["About", "/about"],
 ];
@@ -20,23 +18,63 @@ export function SiteNav() {
   const router = useRouter();
   const [supabase] = useState(() => createClient());
   const [user, setUser] = useState<User | null>(null);
+  const [roles, setRoles] = useState<RoleState>(emptyRoleState);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
 
-    supabase.auth.getUser().then(({ data }) => {
+    async function loadSession() {
+      const { data } = await supabase.auth.getUser();
+
+      if (!isMounted) {
+        return;
+      }
+
+      setUser(data.user);
+
+      if (data.user) {
+        try {
+          const loadedRoles = await getCurrentUserRoles(supabase);
+          if (isMounted) {
+            setRoles(loadedRoles);
+          }
+        } catch {
+          if (isMounted) {
+            setRoles(emptyRoleState);
+          }
+        }
+      } else {
+        setRoles(emptyRoleState);
+      }
+
       if (isMounted) {
-        setUser(data.user);
         setIsLoading(false);
       }
-    });
+    }
+
+    loadSession();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      setRoles(emptyRoleState);
       setIsLoading(false);
+
+      if (session?.user) {
+        getCurrentUserRoles(supabase)
+          .then((loadedRoles) => {
+            if (isMounted) {
+              setRoles(loadedRoles);
+            }
+          })
+          .catch(() => {
+            if (isMounted) {
+              setRoles(emptyRoleState);
+            }
+          });
+      }
     });
 
     return () => {
@@ -48,6 +86,7 @@ export function SiteNav() {
   async function handleSignOut() {
     await supabase.auth.signOut();
     setUser(null);
+    setRoles(emptyRoleState);
     router.push("/");
     router.refresh();
   }
@@ -57,6 +96,8 @@ export function SiteNav() {
       {links.map(([label, href]) => (
         <Link key={href} href={href}>{label}</Link>
       ))}
+      {!isLoading && roles.isOrganizer ? <Link href="/organizer">Organizer</Link> : null}
+      {!isLoading && roles.isAdmin ? <Link href="/admin">Admin</Link> : null}
       <span className="nav-spacer" />
       {!isLoading && user ? (
         <>

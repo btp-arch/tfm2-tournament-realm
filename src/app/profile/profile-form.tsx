@@ -11,20 +11,13 @@ import {
   type Profile,
   type ProfileUpdate,
 } from "@/lib/profiles";
-import { getPlatformRoles, type RoleState } from "@/lib/roles";
-
-const emptyRoles: RoleState = {
-  roles: [],
-  isPlayer: true,
-  isOrganizer: false,
-  isAdmin: false,
-};
+import { emptyRoleState, getPlatformRoles, type RoleState } from "@/lib/roles";
 
 export function ProfileForm() {
   const router = useRouter();
   const [supabase] = useState(() => createClient());
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [roles, setRoles] = useState<RoleState>(emptyRoles);
+  const [roles, setRoles] = useState<RoleState>(emptyRoleState);
   const [displayName, setDisplayName] = useState("");
   const [discordUsername, setDiscordUsername] = useState("");
   const [steamProfileUrl, setSteamProfileUrl] = useState("");

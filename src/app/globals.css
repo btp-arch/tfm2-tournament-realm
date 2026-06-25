@@ -120,9 +120,23 @@ input {
   cursor: pointer;
 }
 
+.button-link {
+  display: inline-block;
+}
+
 .button:disabled {
   cursor: not-allowed;
   opacity: .65;
+}
+
+.secondary-button {
+  background: #0f172a;
+}
+
+.danger-button {
+  border-color: #fca5a5;
+  background: #7f1d1d;
+  color: #fee2e2;
 }
 
 .segmented-control {
@@ -160,6 +174,60 @@ input {
   flex-wrap: wrap;
 }
 
+.section-heading,
+.role-management-row,
+.search-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.section-heading {
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.search-row {
+  flex-direction: column;
+  margin: 1rem 0;
+}
+
+.search-row input {
+  width: 100%;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: .7rem .8rem;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.role-management-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.role-management-row {
+  justify-content: space-between;
+  align-items: flex-start;
+  border-top: 1px solid #25304a;
+  padding-top: 1rem;
+}
+
+.role-management-row h3 {
+  margin-bottom: .35rem;
+}
+
+.role-actions {
+  display: flex;
+  gap: .5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.role-meta {
+  font-size: .875rem;
+}
+
 @media (max-width: 760px) {
   .container {
     padding: 1rem;
@@ -175,5 +243,13 @@ input {
 
   .profile-layout {
     grid-template-columns: 1fr;
+  }
+
+  .role-management-row {
+    flex-direction: column;
+  }
+
+  .role-actions {
+    justify-content: flex-start;
   }
 }

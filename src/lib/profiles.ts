@@ -24,14 +24,23 @@ export function buildDefaultDisplayName(user: User) {
   return trimmed.slice(0, 40);
 }
 
-export async function ensureProfile(
+function isUniqueViolation(error: unknown) {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "23505",
+  );
+}
+
+async function loadProfileById(
   supabase: SupabaseClient<Database>,
-  user: User,
-): Promise<Profile> {
+  userId: string,
+): Promise<Profile | null> {
   const existing = await supabase
     .from("profiles")
     .select(profileSelect)
-    .eq("id", user.id)
+    .eq("id", userId)
     .maybeSingle();
 
   if (existing.error) {
@@ -39,8 +48,17 @@ export async function ensureProfile(
     throw existing.error;
   }
 
-  if (existing.data) {
-    return existing.data;
+  return existing.data;
+}
+
+export async function ensureProfile(
+  supabase: SupabaseClient<Database>,
+  user: User,
+): Promise<Profile> {
+  const existingProfile = await loadProfileById(supabase, user.id);
+
+  if (existingProfile) {
+    return existingProfile;
   }
 
   const created = await supabase
@@ -53,6 +71,14 @@ export async function ensureProfile(
     .single();
 
   if (created.error) {
+    if (isUniqueViolation(created.error)) {
+      const recoveredProfile = await loadProfileById(supabase, user.id);
+
+      if (recoveredProfile) {
+        return recoveredProfile;
+      }
+    }
+
     logError("Unable to create profile.", created.error);
     throw created.error;
   }
