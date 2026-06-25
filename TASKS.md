@@ -1,15 +1,16 @@
-# Next Milestone Checklist: Match Room Flow
+# Next Milestone Checklist: Results, Evidence, and Disputes
 
-- [ ] Apply the check-in and bracket migration to local and hosted Supabase.
+- [ ] Apply the latest match-room migrations to local and hosted Supabase.
 - [ ] Regenerate database types from the migrated database.
-- [ ] Define the match-room route requirements for assigned player-vs-player matches.
-- [ ] Keep BYE and TBD bracket matches out of match-room entry until a real opponent exists.
-- [ ] Add match participant access checks for player one, player two, organizers, and admins.
-- [ ] Add a match-room shell that shows tournament, round, match number, players, format, and status.
-- [ ] Add player match check-in flow if still needed after tournament check-in.
-- [ ] Add host assignment only when explicitly approved for this milestone.
-- [ ] Add side choice only when explicitly approved for this milestone.
-- [ ] Add result reporting only when explicitly approved for this milestone.
-- [ ] Keep disputes, evidence uploads, Discord bot features, automated verification, and monetization out of scope unless a later milestone explicitly requests them.
-- [ ] Add manual QA for player, opponent, organizer, admin, and public access behavior.
+- [ ] Define match result reporting rules for BO1, BO3, and BO5.
+- [ ] Add player result reporting without advancing winners automatically until confirmed.
+- [ ] Add score fields and validation for match format limits.
+- [ ] Add opponent confirmation flow for submitted results.
+- [ ] Add screenshot/evidence upload through Supabase Storage with RLS-protected paths.
+- [ ] Add dispute opening flow for contested results.
+- [ ] Add organizer/admin dispute review and resolution tools.
+- [ ] Add staff override for confirmed results and replay-required outcomes.
+- [ ] Advance winners only after the result confirmation/resolution rules are satisfied.
+- [ ] Keep automated game verification, Discord bot features, Elo/ranked queue, payments, buy-ins, wallets, subscriptions, and wagering out of scope.
+- [ ] Add manual QA for reporter, opponent, organizer, admin, non-participant, BYE, and TBD behavior.
 - [ ] Run `npm run lint` and `npm run typecheck`.

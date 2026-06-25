@@ -2,6 +2,7 @@ import type { Database } from "@/types/database.generated";
 
 export type MatchFormat = Database["public"]["Enums"]["match_format"];
 export type MatchStatus = Database["public"]["Enums"]["match_status"];
+export type MatchSideChoice = Database["public"]["Enums"]["side_choice"];
 export type TournamentFormat = Database["public"]["Enums"]["tournament_format"];
 export type TournamentStatus = Database["public"]["Enums"]["tournament_status"];
 export type RegistrationStatus = Database["public"]["Enums"]["registration_status"];
@@ -13,6 +14,8 @@ export type TournamentCheckInRow = Database["public"]["Tables"]["tournament_chec
 export type TournamentStageRow = Database["public"]["Tables"]["tournament_stages"]["Row"];
 export type TournamentRoundRow = Database["public"]["Tables"]["tournament_rounds"]["Row"];
 export type MatchRow = Database["public"]["Tables"]["matches"]["Row"];
+export type MatchCheckInRow = Database["public"]["Tables"]["match_check_ins"]["Row"];
+export type MatchEventRow = Database["public"]["Tables"]["match_events"]["Row"];
 
 export const publicTournamentStatuses: TournamentStatus[] = [
   "registration_open",
@@ -56,8 +59,9 @@ export const matchFormatLabels: Record<MatchFormat, string> = {
 
 export const matchStatusLabels: Record<MatchStatus, string> = {
   assigned: "Ready",
-  awaiting_guest_join: "Awaiting Guest",
-  awaiting_host_setup: "Awaiting Host Setup",
+  awaiting_guest_join: "Match Created",
+  awaiting_host_setup: "Awaiting Match Created",
+  blocked: "Blocked",
   bye: "Bye",
   check_in_open: "Check-in Open",
   confirmed: "Confirmed",
@@ -65,9 +69,16 @@ export const matchStatusLabels: Record<MatchStatus, string> = {
   finalized: "Finalized",
   forfeit: "Forfeit",
   in_game: "In Game",
+  needs_admin: "Needs Admin",
   pending: "Pending",
+  ready_to_setup: "Ready To Set Up",
   replay_required: "Replay Required",
   result_reported: "Result Reported",
+};
+
+export const matchSideLabels: Record<MatchSideChoice, string> = {
+  blue: "Blue",
+  red: "Red",
 };
 
 export const tournamentFormatLabels: Record<TournamentFormat, string> = {

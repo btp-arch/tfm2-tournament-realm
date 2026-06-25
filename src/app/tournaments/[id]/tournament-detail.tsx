@@ -1403,6 +1403,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                   {roundMatches.map((match) => {
                     const playerOneFallback = match.player_two_id ? "TBD" : "BYE";
                     const playerTwoFallback = match.player_one_id ? "BYE" : "TBD";
+                    const shouldLinkMatch = match.status !== "bye";
 
                     return (
                       <article className="match-row" key={match.id}>
@@ -1427,6 +1428,16 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                         <div className="role-actions">
                           <span className="badge">{matchFormatLabels[match.format]}</span>
                           <span className="badge">{matchStatusLabels[match.status]}</span>
+                          {shouldLinkMatch ? (
+                            <Link
+                              className="button secondary-button button-link"
+                              href={`/matches/${match.id}`}
+                            >
+                              Match Room
+                            </Link>
+                          ) : (
+                            <span className="muted">BYE, no room action</span>
+                          )}
                         </div>
                       </article>
                     );

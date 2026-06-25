@@ -183,6 +183,23 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 12. Confirm a normal player can view the bracket but cannot see generate/reset controls.
 13. Before match events or reports exist, reset the bracket and confirm the tournament returns to `check_in`.
 
+### Manual match-room smoke test
+
+1. Apply migrations and regenerate types for your target environment.
+2. Start the app with `npm run dev`.
+3. Use an active tournament with a generated bracket and at least one non-BYE player-vs-player match.
+4. Open the tournament detail page and click Match Room on a real match.
+5. Confirm `/matches/[id]` shows tournament, round, match number, player names, match format, status, lobby instructions, patch/game version as not specified, and the timeline.
+6. Sign in as Player A and check in for the match.
+7. Sign in as Player B and check in for the match.
+8. Confirm both check-ins move the match to host setup and randomly assign either player as host.
+9. Confirm the host is shown as Blue, the guest is shown as Red, and the lobby name is the guest/opponent display name.
+10. As the assigned host, create a public friendly game in TFM2 using the shown lobby name, then click Match Created.
+11. Confirm the match status becomes In Game without a guest joined click.
+12. Sign in as a non-participant and confirm public match info is visible but player action buttons are unavailable.
+13. Sign in as organizer/admin and confirm staff can reset the match room, assign/reassign host, and mark Match Created without any result reporting controls.
+14. Open BYE/TBD matches and confirm they clearly show that no player match-room action is required yet.
+
 ## First admin bootstrap
 
 Role management is intentionally admin-only, so a fresh environment needs one manual bootstrap if no admin exists yet. After the intended admin account has signed up, run this SQL with database owner privileges, replacing the placeholder email and display name:

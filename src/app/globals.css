@@ -373,6 +373,38 @@ textarea {
   margin: 0;
 }
 
+.match-action-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin-top: 1rem;
+}
+
+.instruction-list,
+.timeline-list {
+  display: grid;
+  gap: .75rem;
+}
+
+.instruction-list p {
+  margin: 0;
+}
+
+.timeline-row {
+  border-top: 1px solid #25304a;
+  padding-top: .75rem;
+}
+
+.timeline-row p {
+  margin: .35rem 0 0;
+}
+
+.mono-text {
+  overflow-wrap: anywhere;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: .9rem;
+}
+
 .confirmation-field {
   display: grid;
   gap: .4rem;
