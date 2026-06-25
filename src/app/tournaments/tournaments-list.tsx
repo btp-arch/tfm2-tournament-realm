@@ -143,6 +143,9 @@ export function TournamentsList() {
                   <span className="badge">{tournamentStatusLabels[tournament.status]}</span>
                 </div>
 
+                {tournament.status === "cancelled" ? (
+                  <p className="error">This tournament has been cancelled.</p>
+                ) : null}
                 {tournament.description ? <p>{tournament.description}</p> : null}
 
                 <dl className="meta-grid">

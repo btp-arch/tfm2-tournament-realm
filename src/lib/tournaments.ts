@@ -15,6 +15,7 @@ export const publicTournamentStatuses: TournamentStatus[] = [
   "check_in",
   "active",
   "completed",
+  "cancelled",
 ];
 
 export const editableTournamentStatuses: TournamentStatus[] = [
@@ -50,6 +51,16 @@ export const matchFormatLabels: Record<MatchFormat, string> = {
 
 export const tournamentFormatLabels: Record<TournamentFormat, string> = {
   single_elimination: "Single Elimination",
+};
+
+export const tournamentStatusDescriptions: Partial<Record<TournamentStatus, string>> = {
+  active: "Tournament has started.",
+  cancelled: "Tournament was called off.",
+  check_in: "Registered players check in.",
+  completed: "Tournament finished.",
+  draft: "Setup only, no registration.",
+  registration_closed: "Registration locked.",
+  registration_open: "Players may register.",
 };
 
 export function formatDateTime(value: string | null) {
@@ -88,12 +99,42 @@ export function toIsoFromLocalInput(value: string) {
   return value ? new Date(value).toISOString() : null;
 }
 
+export function toLocalDateTimeInput(value: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+
+  return localDate.toISOString().slice(0, 16);
+}
+
 export function isRegistrationOpen(tournament: Pick<TournamentRow, "status" | "registration_closes_at">) {
   if (tournament.status !== "registration_open") {
     return false;
   }
 
   return !tournament.registration_closes_at || new Date(tournament.registration_closes_at) > new Date();
+}
+
+export function isRegistrationCloseTimeFuture(
+  tournament: Pick<TournamentRow, "registration_closes_at">,
+) {
+  return Boolean(
+    tournament.registration_closes_at &&
+      new Date(tournament.registration_closes_at) > new Date(),
+  );
+}
+
+export function getRegistrationReopenBlockedReason(
+  tournament: Pick<TournamentRow, "registration_closes_at">,
+) {
+  if (!isRegistrationCloseTimeFuture(tournament)) {
+    return "Update the registration close time to a future time before reopening registration.";
+  }
+
+  return null;
 }
 
 export function isTournamentFull(
@@ -144,13 +185,78 @@ export function getRegistrationBlockedReason(
     return "You are already registered.";
   }
 
-  if (isTournamentFull(tournament, activeRegistrationCount)) {
-    return "Registration is full.";
+  if (tournament.status === "draft") {
+    return "Registration is not open because this tournament is still a draft.";
   }
 
-  if (!isRegistrationOpen(tournament)) {
+  if (tournament.status === "cancelled") {
+    return "Registration is unavailable because this tournament was cancelled.";
+  }
+
+  if (tournament.status === "registration_closed") {
+    return "Registration is closed.";
+  }
+
+  if (tournament.status === "check_in") {
+    return "Registration is locked while check-in is in progress.";
+  }
+
+  if (tournament.status === "active" || tournament.status === "in_progress") {
+    return "Registration is unavailable because this tournament is active.";
+  }
+
+  if (tournament.status === "completed") {
+    return "Registration is unavailable because this tournament is completed.";
+  }
+
+  if (
+    tournament.status === "registration_open" &&
+    tournament.registration_closes_at &&
+    new Date(tournament.registration_closes_at) <= new Date()
+  ) {
+    return "Registration close time has passed.";
+  }
+
+  if (isTournamentFull(tournament, activeRegistrationCount)) {
+    return "Tournament is full.";
+  }
+
+  if (tournament.status === "published") {
+    return "Registration is not open yet.";
+  }
+
+  if (tournament.status !== "registration_open") {
     return "Registration is closed.";
   }
 
   return null;
+}
+
+export function getTournamentDeleteBlockedReason(
+  tournament: Pick<TournamentRow, "status" | "created_by">,
+  activeRegistrationCount: number,
+  userId: string | null,
+  isAdmin: boolean,
+) {
+  if (!userId) {
+    return "Sign in with organizer or admin access to delete tournaments.";
+  }
+
+  if (isAdmin) {
+    return null;
+  }
+
+  if (tournament.status !== "draft") {
+    return "Only draft tournaments can be deleted.";
+  }
+
+  if (activeRegistrationCount > 0) {
+    return "Tournaments with registrations cannot be deleted. Cancel the tournament instead.";
+  }
+
+  if (tournament.created_by === userId) {
+    return null;
+  }
+
+  return "Only the tournament creator or an admin can delete this draft tournament.";
 }

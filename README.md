@@ -103,6 +103,28 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - Registered players can withdraw themselves before registration closes.
 - Organizers and admins can update tournament status from the tournament detail page.
 
+### Tournament statuses
+
+- `draft`: setup only, no registration
+- `registration_open`: players may register
+- `registration_closed`: registration locked
+- `check_in`: registered players check in
+- `active`: tournament has started
+- `completed`: tournament finished
+- `cancelled`: tournament called off
+
+### Tournament management
+
+- Organizers and admins can edit tournament details from `/tournaments/[id]/edit`.
+- Editable fields include title, description, scheduled start time, registration close time, max participants, tournament format, match format, rules, external community link, and status.
+- Tournament detail pages include a management panel for staff with edit, status update, cancel, delete, and participant count controls.
+- Cancel sets the tournament status to `cancelled`, keeps the tournament visible in history, and prevents new registration.
+- Organizer delete is limited to tournaments they created that are still empty drafts.
+- Admins have a platform-owner delete override for any tournament. The admin delete UI shows the tournament title, status, active participant count, total registration records, and requires typing `DELETE`. Cancel is still preferred for real events with participants.
+- Admins can close registration by setting status to `registration_closed`, and can reopen registration by setting status to `registration_open` only when the registration close time is in the future.
+- `/organizer` groups managed tournaments by status and links to manage/edit.
+- `/admin` lists all tournaments with organizer, status, and registered participant count.
+
 ### Manual tournament smoke test
 
 1. Apply migrations and regenerate types for your target environment.
@@ -115,6 +137,29 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 8. Refresh the detail page and confirm the participant count increments and the button changes to withdraw.
 9. Withdraw before registration closes and confirm the participant count decrements.
 10. As the organizer or admin, change the tournament status to `Registration Closed` and confirm normal players can no longer register.
+
+### Manual tournament management smoke test
+
+1. Sign in as an organizer or admin and create a draft tournament.
+2. Open the tournament detail page and confirm the management panel shows the edit link, status control, cancel action, delete action, and registered participant count.
+3. Open the edit page, change each editable field, save, and confirm the detail page reflects the changes.
+4. Confirm a normal player cannot open the edit URL or see the management panel.
+5. As the organizer who created an empty draft, delete it and confirm it disappears.
+6. Create another tournament, open registration, register a player, then confirm delete is blocked with a reason.
+7. Cancel that tournament and confirm it remains visible with a cancelled message and no registration button.
+8. Confirm the organizer dashboard groups managed tournaments by status.
+9. Confirm the admin dashboard lists all tournaments with organizer, status, participant count, and manage/edit links.
+
+### Manual admin override smoke test
+
+1. Sign in as an admin and open a tournament created by another organizer.
+2. Confirm the admin can open `/tournaments/[id]/edit` and save changes.
+3. Set the registration close time to the past, then try to reopen registration and confirm the UI requires a future close time.
+4. Update the registration close time to the future, then reopen registration.
+5. Close registration and confirm normal players can no longer register.
+6. Confirm the admin delete section shows title, status, participant counts, and total registration records.
+7. Type `DELETE`, delete a tournament with registrations, and confirm the override succeeds.
+8. Confirm an organizer still cannot delete a non-draft tournament or a draft tournament with any registration rows.
 
 ## First admin bootstrap
 

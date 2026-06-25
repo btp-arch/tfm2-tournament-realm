@@ -15,6 +15,11 @@ import {
   type RoleState,
 } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
+import {
+  formatDateTime,
+  tournamentStatusLabels,
+  type TournamentRow,
+} from "@/lib/tournaments";
 
 const roleLabels: Record<PlatformRole, string> = {
   player: "Player",
@@ -25,6 +30,16 @@ const roleLabels: Record<PlatformRole, string> = {
 type ProfileRoleSummary = {
   profile: Profile;
   roles: PlatformRoleRow[];
+};
+
+type PublicProfile = {
+  id: string | null;
+  display_name: string | null;
+};
+
+type RegistrationCountRow = {
+  tournament_id: string | null;
+  active_registration_count: number | null;
 };
 
 function formatDate(value: string) {
@@ -57,6 +72,9 @@ export function AdminRoleManager() {
   const [roles, setRoles] = useState<RoleState>(emptyRoleState);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [roleRows, setRoleRows] = useState<PlatformRoleRow[]>([]);
+  const [tournaments, setTournaments] = useState<TournamentRow[]>([]);
+  const [organizerNames, setOrganizerNames] = useState<Record<string, string>>({});
+  const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -95,6 +113,74 @@ export function AdminRoleManager() {
     setRoleRows(rolesResult.data);
   }, [supabase]);
 
+  const loadTournamentManagementData = useCallback(async () => {
+    const { data: tournamentRows, error: tournamentsError } = await supabase
+      .from("tournaments")
+      .select("*")
+      .order("starts_at", { ascending: true, nullsFirst: false })
+      .limit(250);
+
+    if (tournamentsError) {
+      throw tournamentsError;
+    }
+
+    const tournamentIds = tournamentRows.map((tournament) => tournament.id);
+    const organizerIds = Array.from(
+      new Set(tournamentRows.map((tournament) => tournament.created_by)),
+    );
+
+    let countsByTournament: Record<string, number> = {};
+    let namesByOrganizer: Record<string, string> = {};
+
+    if (tournamentIds.length > 0) {
+      const { data: countRows, error: countsError } = await supabase
+        .from("tournament_registration_counts")
+        .select("tournament_id, active_registration_count")
+        .in("tournament_id", tournamentIds);
+
+      if (countsError) {
+        throw countsError;
+      }
+
+      countsByTournament = (countRows as RegistrationCountRow[]).reduce<Record<string, number>>(
+        (counts, row) => {
+          if (row.tournament_id) {
+            counts[row.tournament_id] = row.active_registration_count ?? 0;
+          }
+
+          return counts;
+        },
+        {},
+      );
+    }
+
+    if (organizerIds.length > 0) {
+      const { data: profileRows, error: profilesError } = await supabase
+        .from("public_profiles")
+        .select("id, display_name")
+        .in("id", organizerIds);
+
+      if (profilesError) {
+        throw profilesError;
+      }
+
+      namesByOrganizer = (profileRows as PublicProfile[]).reduce<Record<string, string>>(
+        (names, row) => {
+          if (row.id) {
+            names[row.id] = row.display_name ?? "Tournament staff";
+          }
+
+          return names;
+        },
+        {},
+      );
+    }
+
+    setTournaments(tournamentRows);
+    setRegistrationCounts(countsByTournament);
+    setOrganizerNames(namesByOrganizer);
+  }, [supabase]);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -121,7 +207,10 @@ export function AdminRoleManager() {
         setRoles(loadedRoles);
 
         if (loadedRoles.isAdmin) {
-          await loadRoleManagementData();
+          await Promise.all([
+            loadRoleManagementData(),
+            loadTournamentManagementData(),
+          ]);
         }
       } catch (caughtError) {
         if (isMounted) {
@@ -140,7 +229,7 @@ export function AdminRoleManager() {
     return () => {
       isMounted = false;
     };
-  }, [loadRoleManagementData, router, supabase]);
+  }, [loadRoleManagementData, loadTournamentManagementData, router, supabase]);
 
   async function refreshAfterRoleChange(message: string) {
     const loadedRoles = await getCurrentUserRoles(supabase);
@@ -258,11 +347,59 @@ export function AdminRoleManager() {
 
         <div className="card">
           <h2>Tournament Visibility</h2>
-          <p className="muted">Admins can view and manage all tournaments from the organizer dashboard.</p>
+          <p className="muted">Admins can view and manage all tournaments from this dashboard.</p>
           <Link className="button button-link" href="/organizer">
-            View Tournaments
+            Organizer View
           </Link>
         </div>
+      </section>
+
+      <section className="card">
+        <div className="section-heading">
+          <div>
+            <h2>Tournament Management</h2>
+            <p className="muted">Review all tournaments, organizers, status, and registration counts.</p>
+          </div>
+          <span className="badge">{tournaments.length}</span>
+        </div>
+
+        {tournaments.length === 0 ? (
+          <p className="muted">No tournaments created yet.</p>
+        ) : (
+          <div className="tournament-management-list">
+            {tournaments.map((tournament) => {
+              const count = registrationCounts[tournament.id] ?? 0;
+              const capacity = tournament.max_players ? `/${tournament.max_players}` : "";
+
+              return (
+                <article className="management-row" key={tournament.id}>
+                  <div>
+                    <h3>{tournament.name}</h3>
+                    <p className="muted">
+                      {organizerNames[tournament.created_by] ?? "Tournament staff"} ·{" "}
+                      {formatDateTime(tournament.starts_at)}
+                    </p>
+                    <div className="role-list">
+                      <span className="badge">{tournamentStatusLabels[tournament.status]}</span>
+                      <span className="badge">
+                        {count}
+                        {capacity} registered
+                      </span>
+                    </div>
+                  </div>
+                  <div className="role-actions">
+                    <Link className="button secondary-button button-link" href={`/tournaments/${tournament.id}`}>
+                      Manage
+                    </Link>
+                    <Link className="button button-link" href={`/tournaments/${tournament.id}/edit`}>
+                      Edit
+                    </Link>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <section className="card">

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { AccessDenied } from "@/components/access-denied";
@@ -10,10 +10,17 @@ import { ensureProfile, type Profile } from "@/lib/profiles";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
 import {
+  editableTournamentStatuses,
   formatDateTime,
   tournamentStatusLabels,
   type TournamentRow,
+  type TournamentStatus,
 } from "@/lib/tournaments";
+
+type RegistrationCountRow = {
+  tournament_id: string | null;
+  active_registration_count: number | null;
+};
 
 export function OrganizerDashboard() {
   const router = useRouter();
@@ -22,8 +29,18 @@ export function OrganizerDashboard() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [roles, setRoles] = useState<RoleState>(emptyRoleState);
   const [tournaments, setTournaments] = useState<TournamentRow[]>([]);
+  const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const tournamentsByStatus = useMemo(() => {
+    return editableTournamentStatuses
+      .map((status) => ({
+        status,
+        tournaments: tournaments.filter((tournament) => tournament.status === status),
+      }))
+      .filter((group) => group.tournaments.length > 0);
+  }, [tournaments]);
 
   const loadManagedTournaments = useCallback(async (currentUser: User, loadedRoles: RoleState) => {
     if (loadedRoles.isAdmin) {
@@ -67,6 +84,31 @@ export function OrganizerDashboard() {
     return data;
   }, [supabase]);
 
+  const loadRegistrationCounts = useCallback(async (managedTournaments: TournamentRow[]) => {
+    const tournamentIds = managedTournaments.map((tournament) => tournament.id);
+
+    if (tournamentIds.length === 0) {
+      return {};
+    }
+
+    const { data, error: countsError } = await supabase
+      .from("tournament_registration_counts")
+      .select("tournament_id, active_registration_count")
+      .in("tournament_id", tournamentIds);
+
+    if (countsError) {
+      throw countsError;
+    }
+
+    return (data as RegistrationCountRow[]).reduce<Record<string, number>>((counts, row) => {
+      if (row.tournament_id) {
+        counts[row.tournament_id] = row.active_registration_count ?? 0;
+      }
+
+      return counts;
+    }, {});
+  }, [supabase]);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -94,12 +136,14 @@ export function OrganizerDashboard() {
 
         if (loadedRoles.isOrganizer) {
           const managedTournaments = await loadManagedTournaments(data.user, loadedRoles);
+          const countsByTournament = await loadRegistrationCounts(managedTournaments);
 
           if (!isMounted) {
             return;
           }
 
           setTournaments(managedTournaments);
+          setRegistrationCounts(countsByTournament);
         }
       } catch (caughtError) {
         if (isMounted) {
@@ -118,7 +162,7 @@ export function OrganizerDashboard() {
     return () => {
       isMounted = false;
     };
-  }, [loadManagedTournaments, router, supabase]);
+  }, [loadManagedTournaments, loadRegistrationCounts, router, supabase]);
 
   if (isLoading) {
     return <p className="muted">Loading organizer dashboard...</p>;
@@ -171,17 +215,38 @@ export function OrganizerDashboard() {
           <p className="muted">No tournaments created yet.</p>
         ) : (
           <div className="tournament-management-list">
-            {tournaments.map((tournament) => (
-              <article className="management-row" key={tournament.id}>
-                <div>
-                  <h3>{tournament.name}</h3>
-                  <p className="muted">{formatDateTime(tournament.starts_at)}</p>
-                  <span className="badge">{tournamentStatusLabels[tournament.status]}</span>
+            {tournamentsByStatus.map((group: { status: TournamentStatus; tournaments: TournamentRow[] }) => (
+              <section className="status-group" key={group.status}>
+                <div className="section-heading">
+                  <h3>{tournamentStatusLabels[group.status]}</h3>
+                  <span className="badge">{group.tournaments.length}</span>
                 </div>
-                <Link className="button secondary-button button-link" href={`/tournaments/${tournament.id}`}>
-                  Manage
-                </Link>
-              </article>
+                {group.tournaments.map((tournament) => {
+                  const count = registrationCounts[tournament.id] ?? 0;
+                  const capacity = tournament.max_players ? `/${tournament.max_players}` : "";
+
+                  return (
+                    <article className="management-row" key={tournament.id}>
+                      <div>
+                        <h3>{tournament.name}</h3>
+                        <p className="muted">{formatDateTime(tournament.starts_at)}</p>
+                        <p className="muted">
+                          {count}
+                          {capacity} registered participant{count === 1 ? "" : "s"}
+                        </p>
+                      </div>
+                      <div className="role-actions">
+                        <Link className="button secondary-button button-link" href={`/tournaments/${tournament.id}`}>
+                          Manage
+                        </Link>
+                        <Link className="button button-link" href={`/tournaments/${tournament.id}/edit`}>
+                          Edit
+                        </Link>
+                      </div>
+                    </article>
+                  );
+                })}
+              </section>
             ))}
           </div>
         )}

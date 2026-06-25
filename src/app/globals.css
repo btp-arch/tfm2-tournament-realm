@@ -286,6 +286,13 @@ textarea {
   gap: 1rem;
 }
 
+.status-group {
+  display: grid;
+  gap: .75rem;
+  border-top: 1px solid #25304a;
+  padding-top: 1rem;
+}
+
 .status-control {
   align-items: flex-end;
   flex-wrap: wrap;
@@ -295,6 +302,46 @@ textarea {
   display: grid;
   gap: .4rem;
   min-width: 220px;
+}
+
+.management-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-top: 1px solid #25304a;
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.management-actions h3,
+.status-group h3 {
+  margin: 0 0 .35rem;
+}
+
+.destructive-summary {
+  display: grid;
+  gap: .4rem;
+}
+
+.destructive-summary p {
+  margin: 0;
+}
+
+.confirmation-field {
+  display: grid;
+  gap: .4rem;
+  margin-top: .5rem;
+  color: #dbeafe;
+}
+
+.confirmation-field input {
+  width: min(100%, 280px);
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: .7rem .8rem;
+  background: #0f172a;
+  color: #f8fafc;
 }
 
 @media (max-width: 760px) {
@@ -316,7 +363,8 @@ textarea {
 
   .role-management-row,
   .management-row,
-  .status-control {
+  .status-control,
+  .management-actions {
     flex-direction: column;
   }
 
