@@ -101,7 +101,7 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - Public visitors can browse public tournament statuses on `/tournaments` and `/tournaments/[id]`.
 - Signed-in players can register themselves while status is `registration_open`, capacity is available, and the registration close time has not passed.
 - Registered players can withdraw themselves before registration closes.
-- Organizers and admins can update tournament status from the tournament detail page.
+- Organizers get safe live-event controls on the tournament detail page: close registration, open check-in, and generate the bracket to start.
 
 ### Tournament statuses
 
@@ -117,10 +117,13 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 
 - Organizers and admins can edit tournament details from `/tournaments/[id]/edit`.
 - Editable fields include title, description, scheduled start time, registration close time, max participants, tournament format, match format, rules, external community link, and status.
-- Tournament detail pages include a management panel for staff with edit, status update, cancel, delete, and participant count controls.
+- Tournament detail pages include a management panel for staff with edit, event-flow, cancel, delete, and participant count controls.
+- Normal organizer start requires status `check_in`, a generated bracket size that can hold the field, and at least 2 checked-in players.
+- Generating the bracket also starts the tournament by moving status to `active`.
 - Cancel sets the tournament status to `cancelled`, keeps the tournament visible in history, and prevents new registration.
 - Organizer delete is limited to tournaments they created that are still empty drafts.
 - Admins have a platform-owner delete override for any tournament. The admin delete UI shows the tournament title, status, active participant count, total registration records, and requires typing `DELETE`. Cancel is still preferred for real events with participants.
+- Admins have status overrides plus force controls for opening check-in and starting tournaments. If an admin force-starts a tournament with registered players but no check-ins, the UI requires confirmation before marking all registered players checked in and shows how many players will be included.
 - Admins can close registration by setting status to `registration_closed`, and can reopen registration by setting status to `registration_open` only when the registration close time is in the future.
 - `/organizer` groups managed tournaments by status and links to manage/edit.
 - `/admin` lists all tournaments with organizer, status, and registered participant count.
@@ -157,9 +160,12 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 3. Set the registration close time to the past, then try to reopen registration and confirm the UI requires a future close time.
 4. Update the registration close time to the future, then reopen registration.
 5. Close registration and confirm normal players can no longer register.
-6. Confirm the admin delete section shows title, status, participant counts, and total registration records.
-7. Type `DELETE`, delete a tournament with registrations, and confirm the override succeeds.
-8. Confirm an organizer still cannot delete a non-draft tournament or a draft tournament with any registration rows.
+6. Force open check-in from an admin-managed tournament and confirm the status changes to `Check-in`.
+7. Create another admin-managed tournament with 2-4 registered players and no check-ins, then click Admin Force Start Tournament.
+8. Confirm the force-start dialog says how many registered players will be checked in, accept it, and verify the tournament moves to `Active` with a generated bracket.
+9. Confirm the admin delete section shows title, status, participant counts, and total registration records.
+10. Type `DELETE`, delete a tournament with registrations, and confirm the override succeeds.
+11. Confirm an organizer still cannot delete a non-draft tournament or a draft tournament with any registration rows.
 
 ### Manual check-in and bracket smoke test
 
@@ -172,7 +178,7 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 7. As registered players, confirm the Check In button appears only while status is `check_in`.
 8. Check in at least two players.
 9. As staff, confirm the participant list shows checked-in and missing players and that staff can manually mark or remove check-ins before bracket generation.
-10. Choose bracket size 4, confirm semifinal/final round formats, and generate the bracket.
+10. Choose bracket size 4, confirm semifinal/final round formats, and generate the bracket with Generate Bracket & Start Tournament.
 11. Confirm the tournament moves to `active` and the detail page shows rounds, match numbers, player slots, BYE/TBD placeholders, round match formats, and match statuses.
 12. Confirm a normal player can view the bracket but cannot see generate/reset controls.
 13. Before match events or reports exist, reset the bracket and confirm the tournament returns to `check_in`.

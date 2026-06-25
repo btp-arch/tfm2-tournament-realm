@@ -76,9 +76,13 @@ type SavingAction =
   | "manual-check-in"
   | "manual-uncheck"
   | "generate"
+  | "admin-force-check-in"
+  | "admin-force-start"
   | "reset"
   | "activate"
   | null;
+
+type ActiveSavingAction = Exclude<SavingAction, null>;
 
 function getProfileName(profiles: Record<string, PublicProfile>, userId: string | null) {
   if (!userId) {
@@ -140,6 +144,80 @@ function orderParticipantsForSeeding(
 
     return firstCheckedAt.localeCompare(secondCheckedAt) || first.userId.localeCompare(second.userId);
   });
+}
+
+function isEligibleParticipant(participant: Participant) {
+  return participant.registrationStatus !== "withdrawn" && participant.registrationStatus !== "rejected";
+}
+
+function getTournamentStatusGuidance(
+  status: TournamentStatus,
+  hasGeneratedBracket: boolean,
+  checkedInCount: number,
+  registeredCount: number,
+) {
+  if (status === "registration_open") {
+    return {
+      current: "Players can register and registered players may still withdraw.",
+      next: "Close registration when the field is set, then open check-in.",
+    };
+  }
+
+  if (status === "registration_closed") {
+    return {
+      current: "Registration is locked and no new player check-ins are available yet.",
+      next: "Open check-in so registered players can confirm attendance.",
+    };
+  }
+
+  if (status === "check_in") {
+    if (checkedInCount < 2) {
+      return {
+        current: "Registered players can check in, and staff can manually mark registered players checked in.",
+        next: "Wait for at least 2 checked-in players before generating the bracket.",
+      };
+    }
+
+    return {
+      current: "Checked-in players are ready for bracket generation.",
+      next: hasGeneratedBracket
+        ? "The bracket has already been generated."
+        : "Choose bracket size, seeding, and round formats, then generate the bracket and start.",
+    };
+  }
+
+  if (status === "active") {
+    return {
+      current: "The tournament is live and the generated bracket is visible.",
+      next: "Match rooms and result reporting are intentionally out of scope for this milestone.",
+    };
+  }
+
+  if (status === "completed") {
+    return {
+      current: "The tournament is marked completed.",
+      next: "No live-event action is recommended.",
+    };
+  }
+
+  if (status === "cancelled") {
+    return {
+      current: "The tournament was called off and registration is unavailable.",
+      next: "Use delete only for admin cleanup or test mistakes.",
+    };
+  }
+
+  if (status === "draft") {
+    return {
+      current: "The tournament is in setup and is not publicly open for registration.",
+      next: "Publish by opening registration when setup is ready.",
+    };
+  }
+
+  return {
+    current: tournamentStatusDescriptions[status] ?? "Use the selected tournament status.",
+    next: registeredCount > 0 ? "Move the event into the normal live flow when ready." : "Open registration when ready.",
+  };
 }
 
 export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
@@ -429,9 +507,13 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     return roles.isAdmin || tournament.created_by === user.id || isManagedByUser;
   }, [isManagedByUser, roles.isAdmin, tournament, user]);
 
-  const checkedInParticipants = useMemo(() => {
-    return participants.filter((participant) => Boolean(participant.checkIn));
+  const registeredParticipants = useMemo(() => {
+    return participants.filter(isEligibleParticipant);
   }, [participants]);
+
+  const checkedInParticipants = useMemo(() => {
+    return registeredParticipants.filter((participant) => Boolean(participant.checkIn));
+  }, [registeredParticipants]);
 
   const bracketWarning = getBracketSetupWarning(
     checkedInParticipants.length,
@@ -472,6 +554,30 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     : null;
   const isAdminDeleteReady = !roles.isAdmin || adminDeleteConfirmation === "DELETE";
   const activeStage = stages[0] ?? null;
+  const statusGuidance = tournament
+    ? getTournamentStatusGuidance(
+        tournament.status,
+        hasGeneratedBracket,
+        checkedInParticipants.length,
+        registeredParticipants.length,
+      )
+    : null;
+  const adminForceStartParticipantCount =
+    checkedInParticipants.length > 0 ? checkedInParticipants.length : registeredParticipants.length;
+  const adminForceStartWarning =
+    tournament && roles.isAdmin && !hasGeneratedBracket
+      ? getBracketSetupWarning(adminForceStartParticipantCount, selectedBracketSize)
+      : null;
+  const canAdminForceStart = Boolean(
+    tournament &&
+      roles.isAdmin &&
+      !hasGeneratedBracket &&
+      tournament.status !== "active" &&
+      tournament.status !== "completed" &&
+      tournament.status !== "cancelled" &&
+      adminForceStartParticipantCount >= 2 &&
+      adminForceStartParticipantCount <= selectedBracketSize,
+  );
 
   function updateBracketSize(value: number) {
     if (!isBracketSize(value)) {
@@ -594,9 +700,16 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       }
     }
 
-    if (status === "active" && !hasGeneratedBracket) {
-      setError("Generate a bracket before setting the tournament active.");
-      return;
+    if (status === "active") {
+      if (!hasGeneratedBracket) {
+        setError("Generate a bracket before setting the tournament active.");
+        return;
+      }
+
+      if (!roles.isAdmin && tournament.status !== "check_in") {
+        setError("Open check-in before starting the tournament.");
+        return;
+      }
     }
 
     setSavingAction(action);
@@ -690,7 +803,11 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     }
   }
 
-  async function generateBracket() {
+  async function createBracketFromParticipants(
+    participantsToSeed: Participant[],
+    action: ActiveSavingAction,
+    successMessage: string,
+  ) {
     if (!user || !tournament || !canManageTournament) {
       return;
     }
@@ -701,26 +818,26 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     }
 
     const blockingWarning = getBracketSetupWarning(
-      checkedInParticipants.length,
+      participantsToSeed.length,
       selectedBracketSize,
     );
 
     if (
-      checkedInParticipants.length < 2 ||
-      checkedInParticipants.length > selectedBracketSize
+      participantsToSeed.length < 2 ||
+      participantsToSeed.length > selectedBracketSize
     ) {
       setError(blockingWarning ?? "Unable to generate bracket with the current check-in count.");
       return;
     }
 
-    setSavingAction("generate");
+    setSavingAction(action);
     setNotice(null);
     setError(null);
     let createdStageId: string | null = null;
 
     try {
       const seededPlayers = orderParticipantsForSeeding(
-        checkedInParticipants,
+        participantsToSeed,
         selectedSeedingMethod,
       )
         .map((participant, index) => ({
@@ -810,7 +927,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         throw statusError;
       }
 
-      setNotice("Bracket generated and tournament set active.");
+      setNotice(successMessage);
       await loadTournament();
       router.refresh();
     } catch (caughtError) {
@@ -823,6 +940,126 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     } finally {
       setSavingAction(null);
     }
+  }
+
+  async function generateBracket() {
+    if (!tournament || !canManageTournament) {
+      return;
+    }
+
+    if (tournament.status !== "check_in") {
+      setError("Open check-in before generating the bracket and starting the tournament.");
+      return;
+    }
+
+    await createBracketFromParticipants(
+      checkedInParticipants,
+      "generate",
+      "Bracket generated and tournament started.",
+    );
+  }
+
+  async function adminForceOpenCheckIn() {
+    if (!tournament || !roles.isAdmin) {
+      return;
+    }
+
+    await updateTournamentStatusTo(
+      "check_in",
+      "Admin force opened check-in.",
+      "admin-force-check-in",
+    );
+  }
+
+  async function adminForceStartTournament() {
+    if (!user || !tournament || !roles.isAdmin || !canAdminForceStart) {
+      return;
+    }
+
+    const shouldCheckInAllRegistered = checkedInParticipants.length === 0;
+    let participantsToSeed = checkedInParticipants;
+
+    if (shouldCheckInAllRegistered) {
+      const confirmed = window.confirm(
+        `Admin force start will mark all ${registeredParticipants.length} registered player${
+          registeredParticipants.length === 1 ? "" : "s"
+        } checked in, generate the bracket, and start the tournament. Continue?`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setSavingAction("admin-force-start");
+      setNotice(null);
+      setError(null);
+
+      try {
+        if (tournament.status !== "check_in") {
+          const { error: statusError } = await supabase
+            .from("tournaments")
+            .update({
+              status: "check_in",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", tournament.id);
+
+          if (statusError) {
+            throw statusError;
+          }
+        }
+
+        const baseCheckedInAt = Date.now();
+        const forcedCheckIns = registeredParticipants.map((participant, index) => {
+          const checkedInAt = new Date(baseCheckedInAt + index).toISOString();
+
+          return {
+            tournament_id: tournament.id,
+            user_id: participant.userId,
+            checked_in_by: user.id,
+            checked_in_at: checkedInAt,
+          };
+        });
+
+        const { error: insertError } = await supabase
+          .from("tournament_check_ins")
+          .insert(forcedCheckIns);
+
+        if (insertError) {
+          throw insertError;
+        }
+
+        participantsToSeed = registeredParticipants.map((participant, index) => {
+          const checkedInAt = forcedCheckIns[index]?.checked_in_at ?? new Date().toISOString();
+
+          return {
+            ...participant,
+            checkIn: {
+              checked_in_at: checkedInAt,
+              checked_in_by: user.id,
+              created_at: checkedInAt,
+              id: `${participant.registrationId}-admin-force-check-in`,
+              tournament_id: tournament.id,
+              updated_at: checkedInAt,
+              user_id: participant.userId,
+            },
+          };
+        });
+      } catch (caughtError) {
+        logError("Admin force check-in failed.", caughtError);
+        setError(formatError(caughtError, "Unable to mark registered players checked in."));
+        setSavingAction(null);
+        return;
+      }
+    }
+
+    await createBracketFromParticipants(
+      participantsToSeed,
+      "admin-force-start",
+      shouldCheckInAllRegistered
+        ? `Admin force started tournament with ${participantsToSeed.length} registered players checked in.`
+        : "Admin force started tournament from checked-in players.",
+    );
   }
 
   async function resetBracket() {
@@ -997,6 +1234,16 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       {error ? <p className="error">{error}</p> : null}
       {tournament.status === "cancelled" ? (
         <p className="error">This tournament has been cancelled and is no longer accepting registration.</p>
+      ) : null}
+
+      {statusGuidance ? (
+        <section className="card">
+          <h2>Event Status</h2>
+          <p>
+            <strong>{tournamentStatusLabels[tournament.status]}:</strong> {statusGuidance.current}
+          </p>
+          <p className="muted">Recommended next action: {statusGuidance.next}</p>
+        </section>
       ) : null}
 
       <section className="grid">
@@ -1217,48 +1464,50 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             </Link>
           </div>
 
-          <div className="management-actions">
-            <div>
-              <h3>Status Controls</h3>
-              <p className="muted">
-                {tournamentStatusDescriptions[selectedStatus] ?? "Use the selected tournament status."}
-              </p>
-            </div>
-            <div className="status-control">
-              <label htmlFor="tournament-status">
-                Status
-                <select
-                  id="tournament-status"
-                  value={selectedStatus}
-                  onChange={(event) => setSelectedStatus(event.target.value as TournamentStatus)}
+          {roles.isAdmin ? (
+            <div className="management-actions">
+              <div>
+                <h3>Admin Status Override</h3>
+                <p className="muted">
+                  {tournamentStatusDescriptions[selectedStatus] ?? "Use the selected tournament status."}
+                </p>
+              </div>
+              <div className="status-control">
+                <label htmlFor="tournament-status">
+                  Status
+                  <select
+                    id="tournament-status"
+                    value={selectedStatus}
+                    onChange={(event) => setSelectedStatus(event.target.value as TournamentStatus)}
+                  >
+                    {editableTournamentStatuses.map((status) => (
+                      <option key={status} value={status}>
+                        {tournamentStatusLabels[status]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="button"
+                  disabled={savingAction === "status" || selectedStatus === tournament.status}
+                  type="button"
+                  onClick={updateTournamentStatus}
                 >
-                  {editableTournamentStatuses.map((status) => (
-                    <option key={status} value={status}>
-                      {tournamentStatusLabels[status]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                className="button"
-                disabled={savingAction === "status" || selectedStatus === tournament.status}
-                type="button"
-                onClick={updateTournamentStatus}
-              >
-                {savingAction === "status" ? "Saving..." : "Save Status"}
-              </button>
+                  {savingAction === "status" ? "Saving..." : "Save Status"}
+                </button>
+              </div>
             </div>
-          </div>
+          ) : null}
 
           <div className="management-actions">
             <div>
-              <h3>Registration And Check-In</h3>
-              <p className="muted">Close registration before opening player check-in.</p>
+              <h3>Event Flow</h3>
+              <p className="muted">Normal organizer flow is registration open, registration closed, check-in, then bracket start.</p>
             </div>
             <div className="role-actions">
               <button
                 className="button secondary-button"
-                disabled={savingAction === "close" || tournament.status === "registration_closed"}
+                disabled={savingAction === "close" || tournament.status !== "registration_open"}
                 type="button"
                 onClick={() =>
                   updateTournamentStatusTo(
@@ -1272,7 +1521,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               </button>
               <button
                 className="button secondary-button"
-                disabled={savingAction === "status" || tournament.status === "check_in"}
+                disabled={savingAction === "status" || tournament.status !== "registration_closed"}
                 type="button"
                 onClick={() =>
                   updateTournamentStatusTo(
@@ -1282,7 +1531,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                   )
                 }
               >
-                Open Check-In
+                {savingAction === "status" ? "Opening..." : "Open Check-In"}
               </button>
               <button
                 className="button secondary-button"
@@ -1304,6 +1553,53 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               </button>
             </div>
           </div>
+
+          {roles.isAdmin ? (
+            <div className="management-actions">
+              <div>
+                <h3>Admin Start Overrides</h3>
+                <p className="muted">
+                  Force start includes {adminForceStartParticipantCount} player{adminForceStartParticipantCount === 1 ? "" : "s"} with the current bracket settings.
+                </p>
+                {checkedInParticipants.length === 0 && registeredParticipants.length > 0 ? (
+                  <p className="muted">
+                    Admin Force Start will ask for confirmation before marking all registered players checked in.
+                  </p>
+                ) : null}
+                {adminForceStartWarning ? (
+                  <p className="muted">{adminForceStartWarning}</p>
+                ) : null}
+              </div>
+              <div className="role-actions">
+                <button
+                  className="button secondary-button"
+                  disabled={
+                    savingAction === "admin-force-check-in" ||
+                    tournament.status === "check_in" ||
+                    tournament.status === "active" ||
+                    tournament.status === "completed" ||
+                    tournament.status === "cancelled"
+                  }
+                  type="button"
+                  onClick={adminForceOpenCheckIn}
+                >
+                  {savingAction === "admin-force-check-in"
+                    ? "Opening..."
+                    : "Admin Force Open Check-In"}
+                </button>
+                <button
+                  className="button"
+                  disabled={savingAction === "admin-force-start" || !canAdminForceStart}
+                  type="button"
+                  onClick={adminForceStartTournament}
+                >
+                  {savingAction === "admin-force-start"
+                    ? "Starting..."
+                    : "Admin Force Start Tournament"}
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           <div className="management-actions">
             <div>
@@ -1426,7 +1722,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
 
           <div className="management-actions">
             <div>
-              <h3>Generate Matches</h3>
+              <h3>Generate Bracket And Start</h3>
               <p className="muted">
                 Generation creates all rounds, seeds players by {seedingMethodLabels[selectedSeedingMethod].toLowerCase()}, first-round matches, bye advancements, and TBD placeholders.
               </p>
@@ -1437,27 +1733,14 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                 disabled={
                   savingAction === "generate" ||
                   hasGeneratedBracket ||
+                  tournament.status !== "check_in" ||
                   checkedInParticipants.length < 2 ||
                   checkedInParticipants.length > selectedBracketSize
                 }
                 type="button"
                 onClick={generateBracket}
               >
-                {savingAction === "generate" ? "Generating..." : "Generate Bracket"}
-              </button>
-              <button
-                className="button secondary-button"
-                disabled={savingAction === "activate" || !hasGeneratedBracket || tournament.status === "active"}
-                type="button"
-                onClick={() =>
-                  updateTournamentStatusTo(
-                    "active",
-                    "Tournament set active.",
-                    "activate",
-                  )
-                }
-              >
-                Set Active
+                {savingAction === "generate" ? "Starting..." : "Generate Bracket & Start Tournament"}
               </button>
               <button
                 className="button danger-button"
