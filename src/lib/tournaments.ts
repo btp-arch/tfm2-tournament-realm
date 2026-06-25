@@ -1,6 +1,7 @@
 import type { Database } from "@/types/database.generated";
 
 export type MatchFormat = Database["public"]["Enums"]["match_format"];
+export type MatchStatus = Database["public"]["Enums"]["match_status"];
 export type TournamentFormat = Database["public"]["Enums"]["tournament_format"];
 export type TournamentStatus = Database["public"]["Enums"]["tournament_status"];
 export type RegistrationStatus = Database["public"]["Enums"]["registration_status"];
@@ -8,6 +9,10 @@ export type TournamentRow = Database["public"]["Tables"]["tournaments"]["Row"];
 export type TournamentInsert = Database["public"]["Tables"]["tournaments"]["Insert"];
 export type TournamentRegistrationRow =
   Database["public"]["Tables"]["tournament_registrations"]["Row"];
+export type TournamentCheckInRow = Database["public"]["Tables"]["tournament_check_ins"]["Row"];
+export type TournamentStageRow = Database["public"]["Tables"]["tournament_stages"]["Row"];
+export type TournamentRoundRow = Database["public"]["Tables"]["tournament_rounds"]["Row"];
+export type MatchRow = Database["public"]["Tables"]["matches"]["Row"];
 
 export const publicTournamentStatuses: TournamentStatus[] = [
   "registration_open",
@@ -47,6 +52,22 @@ export const matchFormatLabels: Record<MatchFormat, string> = {
   bo1: "BO1",
   bo3: "BO3",
   bo5: "BO5",
+};
+
+export const matchStatusLabels: Record<MatchStatus, string> = {
+  assigned: "Ready",
+  awaiting_guest_join: "Awaiting Guest",
+  awaiting_host_setup: "Awaiting Host Setup",
+  bye: "Bye",
+  check_in_open: "Check-in Open",
+  confirmed: "Confirmed",
+  disputed: "Disputed",
+  finalized: "Finalized",
+  forfeit: "Forfeit",
+  in_game: "In Game",
+  pending: "Pending",
+  replay_required: "Replay Required",
+  result_reported: "Result Reported",
 };
 
 export const tournamentFormatLabels: Record<TournamentFormat, string> = {

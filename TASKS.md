@@ -1,16 +1,15 @@
-# Next Milestone Checklist: Tournament Check-In and Bracket Setup
+# Next Milestone Checklist: Match Room Flow
 
-- [ ] Apply latest tournament management and admin override migrations to local and hosted Supabase.
+- [ ] Apply the check-in and bracket migration to local and hosted Supabase.
 - [ ] Regenerate database types from the migrated database.
-- [ ] Define check-in windows, checked-in participant state, and RLS policies in a new migration.
-- [ ] Add player check-in UI for registered players only.
-- [ ] Add organizer/admin controls for opening and closing check-in.
-- [ ] Show checked-in, not checked-in, and withdrawn participant counts to tournament staff.
-- [ ] Define bracket tables, seed storage, and RLS policies in a new migration.
-- [ ] Generate single-elimination brackets from checked-in players, with a fallback path for organizers to seed from registered players.
-- [ ] Add bracket viewing to tournament detail pages.
-- [ ] Add organizer/admin controls for seeding and bracket reset before matches begin.
-- [ ] Prevent bracket generation for draft, cancelled, completed, or empty tournaments.
-- [ ] Keep match rooms, result reporting, Discord bot features, automated verification, and monetization out of scope.
-- [ ] Add manual QA for player, organizer, admin, and RLS behavior.
+- [ ] Define the match-room route requirements for assigned player-vs-player matches.
+- [ ] Keep BYE and TBD bracket matches out of match-room entry until a real opponent exists.
+- [ ] Add match participant access checks for player one, player two, organizers, and admins.
+- [ ] Add a match-room shell that shows tournament, round, match number, players, format, and status.
+- [ ] Add player match check-in flow if still needed after tournament check-in.
+- [ ] Add host assignment only when explicitly approved for this milestone.
+- [ ] Add side choice only when explicitly approved for this milestone.
+- [ ] Add result reporting only when explicitly approved for this milestone.
+- [ ] Keep disputes, evidence uploads, Discord bot features, automated verification, and monetization out of scope unless a later milestone explicitly requests them.
+- [ ] Add manual QA for player, opponent, organizer, admin, and public access behavior.
 - [ ] Run `npm run lint` and `npm run typecheck`.

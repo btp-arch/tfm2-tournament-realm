@@ -161,6 +161,22 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 7. Type `DELETE`, delete a tournament with registrations, and confirm the override succeeds.
 8. Confirm an organizer still cannot delete a non-draft tournament or a draft tournament with any registration rows.
 
+### Manual check-in and bracket smoke test
+
+1. Apply migrations and regenerate types for your target environment.
+2. Start the app with `npm run dev`.
+3. Sign in as an organizer or admin and create a 4-player test tournament.
+4. Set the tournament to `Registration Open`.
+5. Register 2-4 signed-in test player accounts.
+6. As staff, close registration and open check-in from the tournament detail management panel.
+7. As registered players, confirm the Check In button appears only while status is `check_in`.
+8. Check in at least two players.
+9. As staff, confirm the participant list shows checked-in and missing players and that staff can manually mark or remove check-ins before bracket generation.
+10. Choose bracket size 4, confirm semifinal/final round formats, and generate the bracket.
+11. Confirm the tournament moves to `active` and the detail page shows rounds, match numbers, player slots, BYE/TBD placeholders, round match formats, and match statuses.
+12. Confirm a normal player can view the bracket but cannot see generate/reset controls.
+13. Before match events or reports exist, reset the bracket and confirm the tournament returns to `check_in`.
+
 ## First admin bootstrap
 
 Role management is intentionally admin-only, so a fresh environment needs one manual bootstrap if no admin exists yet. After the intended admin account has signed up, run this SQL with database owner privileges, replacing the placeholder email and display name:

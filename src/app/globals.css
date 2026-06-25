@@ -250,7 +250,10 @@ textarea {
 }
 
 .tournament-list,
-.tournament-management-list {
+.tournament-management-list,
+.participant-list,
+.bracket-rounds,
+.match-list {
   display: grid;
   gap: 1rem;
 }
@@ -319,6 +322,48 @@ textarea {
   margin: 0 0 .35rem;
 }
 
+.participant-row,
+.match-row {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-top: 1px solid #25304a;
+  padding-top: 1rem;
+}
+
+.participant-row p,
+.match-row p {
+  margin: .35rem 0 0;
+}
+
+.bracket-round {
+  border-top: 1px solid #25304a;
+  padding-top: 1rem;
+}
+
+.round-format-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.round-format-grid label {
+  display: grid;
+  gap: .4rem;
+  color: #dbeafe;
+}
+
+.round-format-grid select {
+  width: 100%;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: .7rem .8rem;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
 .destructive-summary {
   display: grid;
   gap: .4rem;
@@ -363,6 +408,8 @@ textarea {
 
   .role-management-row,
   .management-row,
+  .participant-row,
+  .match-row,
   .status-control,
   .management-actions {
     flex-direction: column;

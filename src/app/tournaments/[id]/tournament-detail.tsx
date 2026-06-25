@@ -4,6 +4,15 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
+import {
+  bracketSizes,
+  generateSingleEliminationMatches,
+  getBracketSetupWarning,
+  getDefaultRoundFormats,
+  getRoundName,
+  isBracketSize,
+  type BracketSize,
+} from "@/lib/brackets";
 import { formatError, logError } from "@/lib/errors";
 import { ensureProfile } from "@/lib/profiles";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
@@ -18,23 +27,86 @@ import {
   getTournamentDeleteBlockedReason,
   isTournamentFull,
   matchFormatLabels,
+  matchFormats,
+  matchStatusLabels,
   tournamentStatusDescriptions,
   tournamentFormatLabels,
   tournamentStatusLabels,
+  type MatchFormat,
+  type MatchRow,
+  type TournamentCheckInRow,
   type TournamentRegistrationRow,
+  type TournamentRoundRow,
   type TournamentRow,
+  type TournamentStageRow,
   type TournamentStatus,
 } from "@/lib/tournaments";
 
 type PublicProfile = {
   id: string;
-  display_name: string;
+  display_name: string | null;
 };
 
 type RegistrationCountRow = {
   tournament_id: string | null;
   active_registration_count: number | null;
 };
+
+type Participant = {
+  registrationId: string;
+  userId: string;
+  displayName: string;
+  registrationStatus: TournamentRegistrationRow["status"];
+  registeredAt: string;
+  checkIn: TournamentCheckInRow | null;
+};
+
+type SavingAction =
+  | "register"
+  | "withdraw"
+  | "status"
+  | "cancel"
+  | "delete"
+  | "reopen"
+  | "close"
+  | "check-in"
+  | "manual-check-in"
+  | "manual-uncheck"
+  | "generate"
+  | "reset"
+  | "activate"
+  | null;
+
+function getProfileName(profiles: Record<string, PublicProfile>, userId: string | null) {
+  if (!userId) {
+    return null;
+  }
+
+  return profiles[userId]?.display_name ?? "Player";
+}
+
+function describeMatchSlot(
+  userId: string | null,
+  profiles: Record<string, PublicProfile>,
+  seed: number | null,
+  fallback: "BYE" | "TBD",
+) {
+  const name = getProfileName(profiles, userId);
+
+  if (!name) {
+    return fallback;
+  }
+
+  return seed ? `${seed}. ${name}` : name;
+}
+
+function isActiveRegistration(registration: TournamentRegistrationRow | null) {
+  return Boolean(
+    registration &&
+      registration.status !== "withdrawn" &&
+      registration.status !== "rejected",
+  );
+}
 
 export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const router = useRouter();
@@ -44,15 +116,21 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const [tournament, setTournament] = useState<TournamentRow | null>(null);
   const [organizer, setOrganizer] = useState<PublicProfile | null>(null);
   const [registration, setRegistration] = useState<TournamentRegistrationRow | null>(null);
+  const [ownCheckIn, setOwnCheckIn] = useState<TournamentCheckInRow | null>(null);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [profileMap, setProfileMap] = useState<Record<string, PublicProfile>>({});
+  const [stages, setStages] = useState<TournamentStageRow[]>([]);
+  const [rounds, setRounds] = useState<TournamentRoundRow[]>([]);
+  const [matches, setMatches] = useState<MatchRow[]>([]);
   const [activeRegistrationCount, setActiveRegistrationCount] = useState(0);
   const [totalRegistrationCount, setTotalRegistrationCount] = useState(0);
   const [isManagedByUser, setIsManagedByUser] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<TournamentStatus>("draft");
+  const [selectedBracketSize, setSelectedBracketSize] = useState<BracketSize>(4);
+  const [roundFormats, setRoundFormats] = useState<MatchFormat[]>(getDefaultRoundFormats(4));
   const [adminDeleteConfirmation, setAdminDeleteConfirmation] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [savingAction, setSavingAction] = useState<
-    "register" | "withdraw" | "status" | "cancel" | "delete" | "reopen" | "close" | null
-  >(null);
+  const [savingAction, setSavingAction] = useState<SavingAction>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,6 +171,10 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         registrationResult,
         organizerAccessResult,
         totalRegistrationsResult,
+        checkInResult,
+        stagesResult,
+        roundsResult,
+        matchesResult,
       ] = await Promise.all([
         supabase
           .from("public_profiles")
@@ -126,40 +208,158 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               .select("id", { count: "exact", head: true })
               .eq("tournament_id", loadedTournament.id)
           : Promise.resolve({ data: null, error: null, count: 0 }),
+        currentUser
+          ? supabase
+              .from("tournament_check_ins")
+              .select("*")
+              .eq("tournament_id", loadedTournament.id)
+          : Promise.resolve({ data: [], error: null }),
+        supabase
+          .from("tournament_stages")
+          .select("*")
+          .eq("tournament_id", loadedTournament.id)
+          .order("stage_number", { ascending: true }),
+        supabase
+          .from("tournament_rounds")
+          .select("*")
+          .eq("tournament_id", loadedTournament.id)
+          .order("round_number", { ascending: true }),
+        supabase
+          .from("matches")
+          .select("*")
+          .eq("tournament_id", loadedTournament.id)
+          .order("round_number", { ascending: true })
+          .order("bracket_position", { ascending: true }),
       ]);
 
-      if (organizerResult.error) {
-        throw organizerResult.error;
-      }
-
-      if (countResult.error) {
-        throw countResult.error;
-      }
-
-      if (registrationResult.error) {
-        throw registrationResult.error;
-      }
-
-      if (organizerAccessResult.error) {
-        throw organizerAccessResult.error;
-      }
-
-      if (totalRegistrationsResult.error) {
-        throw totalRegistrationsResult.error;
-      }
+      if (organizerResult.error) throw organizerResult.error;
+      if (countResult.error) throw countResult.error;
+      if (registrationResult.error) throw registrationResult.error;
+      if (organizerAccessResult.error) throw organizerAccessResult.error;
+      if (totalRegistrationsResult.error) throw totalRegistrationsResult.error;
+      if (checkInResult.error) throw checkInResult.error;
+      if (stagesResult.error) throw stagesResult.error;
+      if (roundsResult.error) throw roundsResult.error;
+      if (matchesResult.error) throw matchesResult.error;
 
       const countRow = countResult.data as RegistrationCountRow | null;
+      const checkIns = (checkInResult.data ?? []) as TournamentCheckInRow[];
+      const canManageLoaded =
+        Boolean(currentUser) &&
+        (loadedRoles.isAdmin ||
+          loadedTournament.created_by === currentUser?.id ||
+          Boolean(organizerAccessResult.data));
+      let loadedParticipants: Participant[] = [];
+      let loadedProfileMap: Record<string, PublicProfile> = {};
+
+      if (canManageLoaded) {
+        const { data: registrationRows, error: registrationsError } = await supabase
+          .from("tournament_registrations")
+          .select("*")
+          .eq("tournament_id", loadedTournament.id)
+          .neq("status", "withdrawn")
+          .order("created_at", { ascending: true });
+
+        if (registrationsError) {
+          throw registrationsError;
+        }
+
+        const userIds = Array.from(
+          new Set([
+            ...registrationRows.map((row) => row.user_id),
+            ...matchesResult.data.flatMap((match) => [
+              match.player_one_id,
+              match.player_two_id,
+              match.winner_id,
+            ]),
+          ].filter(Boolean) as string[]),
+        );
+
+        if (userIds.length > 0) {
+          const { data: profiles, error: profilesError } = await supabase
+            .from("public_profiles")
+            .select("id, display_name")
+            .in("id", userIds);
+
+          if (profilesError) {
+            throw profilesError;
+          }
+
+          loadedProfileMap = (profiles as PublicProfile[]).reduce<Record<string, PublicProfile>>(
+            (profilesById, profile) => {
+              if (profile.id) {
+                profilesById[profile.id] = profile;
+              }
+
+              return profilesById;
+            },
+            {},
+          );
+        }
+
+        loadedParticipants = registrationRows.map((row) => ({
+          registrationId: row.id,
+          userId: row.user_id,
+          displayName: getProfileName(loadedProfileMap, row.user_id) ?? "Player",
+          registrationStatus: row.status,
+          registeredAt: row.created_at,
+          checkIn: checkIns.find((checkIn) => checkIn.user_id === row.user_id) ?? null,
+        }));
+      } else {
+        const matchUserIds = Array.from(
+          new Set(
+            matchesResult.data
+              .flatMap((match) => [match.player_one_id, match.player_two_id, match.winner_id])
+              .filter(Boolean) as string[],
+          ),
+        );
+
+        if (matchUserIds.length > 0) {
+          const { data: profiles, error: profilesError } = await supabase
+            .from("public_profiles")
+            .select("id, display_name")
+            .in("id", matchUserIds);
+
+          if (profilesError) {
+            throw profilesError;
+          }
+
+          loadedProfileMap = (profiles as PublicProfile[]).reduce<Record<string, PublicProfile>>(
+            (profilesById, profile) => {
+              if (profile.id) {
+                profilesById[profile.id] = profile;
+              }
+
+              return profilesById;
+            },
+            {},
+          );
+        }
+      }
 
       setUser(currentUser);
       setRoles(loadedRoles);
       setTournament(loadedTournament);
       setOrganizer(organizerResult.data as PublicProfile | null);
       setRegistration(registrationResult.data);
+      setOwnCheckIn(
+        currentUser ? checkIns.find((checkIn) => checkIn.user_id === currentUser.id) ?? null : null,
+      );
+      setParticipants(loadedParticipants);
+      setProfileMap(loadedProfileMap);
+      setStages(stagesResult.data);
+      setRounds(roundsResult.data);
+      setMatches(matchesResult.data);
       setActiveRegistrationCount(countRow?.active_registration_count ?? 0);
       setTotalRegistrationCount(totalRegistrationsResult.count ?? 0);
       setIsManagedByUser(Boolean(organizerAccessResult.data));
       setSelectedStatus(loadedTournament.status);
       setAdminDeleteConfirmation("");
+
+      const firstStage = stagesResult.data[0];
+      if (firstStage && isBracketSize(firstStage.bracket_size)) {
+        setSelectedBracketSize(firstStage.bracket_size);
+      }
     } catch (caughtError) {
       logError("Tournament detail load failed.", caughtError);
       setError(formatError(caughtError, "Unable to load tournament."));
@@ -184,15 +384,28 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     return roles.isAdmin || tournament.created_by === user.id || isManagedByUser;
   }, [isManagedByUser, roles.isAdmin, tournament, user]);
 
+  const checkedInParticipants = useMemo(() => {
+    return participants.filter((participant) => Boolean(participant.checkIn));
+  }, [participants]);
+
+  const bracketWarning = getBracketSetupWarning(
+    checkedInParticipants.length,
+    selectedBracketSize,
+  );
+  const hasGeneratedBracket = stages.length > 0;
   const registrationBlockedReason = tournament
     ? getRegistrationBlockedReason(tournament, activeRegistrationCount, registration, Boolean(user))
     : null;
-
   const canRegister = tournament
     ? Boolean(user) && canRegisterForTournament(tournament, activeRegistrationCount, registration)
     : false;
-
   const canWithdraw = tournament ? canWithdrawFromTournament(tournament, registration) : false;
+  const canCheckIn = Boolean(
+    user &&
+      tournament?.status === "check_in" &&
+      isActiveRegistration(registration) &&
+      !ownCheckIn,
+  );
   const isFull = tournament ? isTournamentFull(tournament, activeRegistrationCount) : false;
   const deleteBlockedReason =
     tournament && user
@@ -213,6 +426,16 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     ? getRegistrationReopenBlockedReason(tournament)
     : null;
   const isAdminDeleteReady = !roles.isAdmin || adminDeleteConfirmation === "DELETE";
+  const activeStage = stages[0] ?? null;
+
+  function updateBracketSize(value: number) {
+    if (!isBracketSize(value)) {
+      return;
+    }
+
+    setSelectedBracketSize(value);
+    setRoundFormats(getDefaultRoundFormats(value));
+  }
 
   async function registerForTournament() {
     if (!user || !tournament || !canRegister) {
@@ -278,10 +501,40 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     }
   }
 
+  async function checkInForTournament() {
+    if (!user || !tournament || !canCheckIn) {
+      return;
+    }
+
+    setSavingAction("check-in");
+    setNotice(null);
+    setError(null);
+
+    try {
+      const { error: insertError } = await supabase.from("tournament_check_ins").insert({
+        tournament_id: tournament.id,
+        user_id: user.id,
+        checked_in_by: user.id,
+      });
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      setNotice("You are checked in.");
+      await loadTournament();
+    } catch (caughtError) {
+      logError("Tournament check-in failed.", caughtError);
+      setError(formatError(caughtError, "Unable to check in for this tournament."));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
   async function updateTournamentStatusTo(
     status: TournamentStatus,
     successMessage: string,
-    action: "status" | "reopen" | "close" = "status",
+    action: SavingAction = "status",
   ) {
     if (!tournament || !canManageTournament || status === tournament.status) {
       return;
@@ -294,6 +547,11 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         setError(blockedReason);
         return;
       }
+    }
+
+    if (status === "active" && !hasGeneratedBracket) {
+      setError("Generate a bracket before setting the tournament active.");
+      return;
     }
 
     setSavingAction(action);
@@ -326,6 +584,254 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
 
   async function updateTournamentStatus() {
     await updateTournamentStatusTo(selectedStatus, "Tournament status updated.");
+  }
+
+  async function manualCheckIn(participant: Participant) {
+    if (!user || !tournament || !canManageTournament || participant.checkIn) {
+      return;
+    }
+
+    setSavingAction("manual-check-in");
+    setNotice(null);
+    setError(null);
+
+    try {
+      const { error: insertError } = await supabase.from("tournament_check_ins").insert({
+        tournament_id: tournament.id,
+        user_id: participant.userId,
+        checked_in_by: user.id,
+      });
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      setNotice(`${participant.displayName} checked in.`);
+      await loadTournament();
+    } catch (caughtError) {
+      logError("Manual tournament check-in failed.", caughtError);
+      setError(formatError(caughtError, "Unable to update participant check-in."));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  async function manualUncheck(participant: Participant) {
+    if (!participant.checkIn || !canManageTournament) {
+      return;
+    }
+
+    setSavingAction("manual-uncheck");
+    setNotice(null);
+    setError(null);
+
+    try {
+      const { error: deleteError } = await supabase
+        .from("tournament_check_ins")
+        .delete()
+        .eq("id", participant.checkIn.id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      setNotice(`${participant.displayName} unchecked.`);
+      await loadTournament();
+    } catch (caughtError) {
+      logError("Manual tournament uncheck failed.", caughtError);
+      setError(formatError(caughtError, "Unable to remove participant check-in."));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  async function generateBracket() {
+    if (!user || !tournament || !canManageTournament) {
+      return;
+    }
+
+    if (hasGeneratedBracket) {
+      setError("This tournament already has a generated bracket. Reset it before generating again.");
+      return;
+    }
+
+    const blockingWarning = getBracketSetupWarning(
+      checkedInParticipants.length,
+      selectedBracketSize,
+    );
+
+    if (
+      checkedInParticipants.length < 2 ||
+      checkedInParticipants.length > selectedBracketSize
+    ) {
+      setError(blockingWarning ?? "Unable to generate bracket with the current check-in count.");
+      return;
+    }
+
+    setSavingAction("generate");
+    setNotice(null);
+    setError(null);
+    let createdStageId: string | null = null;
+
+    try {
+      const seededPlayers = checkedInParticipants
+        .slice()
+        .sort((first, second) => {
+          const firstCheckedAt = first.checkIn?.checked_in_at ?? first.registeredAt;
+          const secondCheckedAt = second.checkIn?.checked_in_at ?? second.registeredAt;
+
+          return firstCheckedAt.localeCompare(secondCheckedAt) || first.userId.localeCompare(second.userId);
+        })
+        .map((participant, index) => ({
+          userId: participant.userId,
+          seed: index + 1,
+        }));
+
+      const { data: stage, error: stageError } = await supabase
+        .from("tournament_stages")
+        .insert({
+          tournament_id: tournament.id,
+          stage_number: 1,
+          name: "Single Elimination",
+          bracket_type: "single_elimination",
+          bracket_size: selectedBracketSize,
+          generated_by: user.id,
+        })
+        .select()
+        .single();
+
+      if (stageError) {
+        throw stageError;
+      }
+
+      createdStageId = stage.id;
+
+      const { data: createdRounds, error: roundsError } = await supabase
+        .from("tournament_rounds")
+        .insert(
+          roundFormats.map((format, index) => ({
+            tournament_id: tournament.id,
+            stage_id: stage.id,
+            round_number: index + 1,
+            name: getRoundName(selectedBracketSize, index + 1),
+            match_format: format,
+          })),
+        )
+        .select();
+
+      if (roundsError) {
+        throw roundsError;
+      }
+
+      const roundByNumber = new Map(
+        createdRounds.map((round) => [round.round_number, round]),
+      );
+      const generatedMatches = generateSingleEliminationMatches(
+        seededPlayers,
+        selectedBracketSize,
+        roundFormats,
+      );
+
+      const { error: matchesError } = await supabase.from("matches").insert(
+        generatedMatches.map((match) => ({
+          tournament_id: tournament.id,
+          stage_id: stage.id,
+          round_id: roundByNumber.get(match.roundNumber)?.id ?? null,
+          round_number: match.roundNumber,
+          match_number: match.matchNumber,
+          bracket_position: match.bracketPosition,
+          player_one_id: match.playerOneId,
+          player_two_id: match.playerTwoId,
+          player_one_seed: match.playerOneSeed,
+          player_two_seed: match.playerTwoSeed,
+          player_one_slot: match.playerOneSlot,
+          player_two_slot: match.playerTwoSlot,
+          format: match.format,
+          status: match.status,
+          winner_id: match.winnerId,
+        })),
+      );
+
+      if (matchesError) {
+        throw matchesError;
+      }
+
+      const { error: statusError } = await supabase
+        .from("tournaments")
+        .update({
+          status: "active",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tournament.id);
+
+      if (statusError) {
+        throw statusError;
+      }
+
+      setNotice("Bracket generated and tournament set active.");
+      await loadTournament();
+      router.refresh();
+    } catch (caughtError) {
+      if (createdStageId) {
+        await supabase.from("tournament_stages").delete().eq("id", createdStageId);
+      }
+
+      logError("Bracket generation failed.", caughtError);
+      setError(formatError(caughtError, "Unable to generate bracket."));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  async function resetBracket() {
+    if (!tournament || !canManageTournament || !hasGeneratedBracket) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Reset the generated bracket? This is only allowed before match events or reports exist.",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setSavingAction("reset");
+    setNotice(null);
+    setError(null);
+
+    try {
+      const { error: deleteError } = await supabase
+        .from("tournament_stages")
+        .delete()
+        .eq("tournament_id", tournament.id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      if (tournament.status === "active") {
+        const { error: statusError } = await supabase
+          .from("tournaments")
+          .update({
+            status: "check_in",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", tournament.id);
+
+        if (statusError) {
+          throw statusError;
+        }
+      }
+
+      setNotice("Generated bracket reset.");
+      await loadTournament();
+      router.refresh();
+    } catch (caughtError) {
+      logError("Bracket reset failed.", caughtError);
+      setError(formatError(caughtError, "Unable to reset bracket."));
+    } finally {
+      setSavingAction(null);
+    }
   }
 
   async function cancelTournament() {
@@ -425,6 +931,11 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     );
   }
 
+  const matchesByRound = rounds.map((round) => ({
+    round,
+    matches: matches.filter((match) => match.round_id === round.id),
+  }));
+
   return (
     <>
       <div className="section-heading">
@@ -469,7 +980,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               <dd>{tournamentFormatLabels[tournament.tournament_format]}</dd>
             </div>
             <div>
-              <dt>Matches</dt>
+              <dt>Default Matches</dt>
               <dd>{matchFormatLabels[tournament.format]}</dd>
             </div>
           </dl>
@@ -501,9 +1012,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         <div className="section-heading">
           <div>
             <h2>Player Registration</h2>
-            <p className="muted">
-              Registration is for your signed-in account only.
-            </p>
+            <p className="muted">Registration and check-in use your signed-in account.</p>
           </div>
         </div>
 
@@ -535,6 +1044,96 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       </section>
 
       <section className="card">
+        <div className="section-heading">
+          <div>
+            <h2>Check-In</h2>
+            <p className="muted">
+              {tournament.status === "check_in"
+                ? "Check-in is open for registered players."
+                : `Check-in is not open. Current status: ${tournamentStatusLabels[tournament.status]}.`}
+            </p>
+          </div>
+          {ownCheckIn ? <span className="badge">Checked In</span> : null}
+        </div>
+
+        {!user ? (
+          <p className="muted">Sign in to check in after registration is locked.</p>
+        ) : ownCheckIn ? (
+          <p className="notice">You checked in at {formatDateTime(ownCheckIn.checked_in_at)}.</p>
+        ) : canCheckIn ? (
+          <button
+            className="button"
+            disabled={savingAction === "check-in"}
+            type="button"
+            onClick={checkInForTournament}
+          >
+            {savingAction === "check-in" ? "Checking in..." : "Check In"}
+          </button>
+        ) : !isActiveRegistration(registration) ? (
+          <p className="muted">You must be registered for this tournament before you can check in.</p>
+        ) : (
+          <p className="muted">Check-in opens after tournament staff move the event to check-in.</p>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Bracket</h2>
+        {activeStage ? (
+          <p className="muted">
+            {activeStage.name}, {activeStage.bracket_size} players. Round formats are stored on each round.
+          </p>
+        ) : (
+          <p className="muted">No bracket has been generated yet.</p>
+        )}
+
+        {matchesByRound.length > 0 ? (
+          <div className="bracket-rounds">
+            {matchesByRound.map(({ round, matches: roundMatches }) => (
+              <section className="bracket-round" key={round.id}>
+                <div className="section-heading">
+                  <h3>{round.name}</h3>
+                  <span className="badge">{matchFormatLabels[round.match_format]}</span>
+                </div>
+                <div className="match-list">
+                  {roundMatches.map((match) => {
+                    const playerOneFallback = match.player_two_id ? "TBD" : "BYE";
+                    const playerTwoFallback = match.player_one_id ? "BYE" : "TBD";
+
+                    return (
+                      <article className="match-row" key={match.id}>
+                        <div>
+                          <strong>Match {match.match_number ?? match.bracket_position}</strong>
+                          <p className="muted">
+                            {describeMatchSlot(
+                              match.player_one_id,
+                              profileMap,
+                              match.player_one_seed,
+                              playerOneFallback,
+                            )}{" "}
+                            vs{" "}
+                            {describeMatchSlot(
+                              match.player_two_id,
+                              profileMap,
+                              match.player_two_seed,
+                              playerTwoFallback,
+                            )}
+                          </p>
+                        </div>
+                        <div className="role-actions">
+                          <span className="badge">{matchFormatLabels[match.format]}</span>
+                          <span className="badge">{matchStatusLabels[match.status]}</span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="card">
         <h2>Rules</h2>
         {tournament.rules ? <p className="pre-line">{tournament.rules}</p> : <p className="muted">No rules posted yet.</p>}
         {tournament.external_community_url ? (
@@ -552,9 +1151,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             <div>
               <h2>Management</h2>
               <p className="muted">
-                {activeRegistrationCount}
-                {tournament.max_players ? `/${tournament.max_players}` : ""} registered participant
-                {activeRegistrationCount === 1 ? "" : "s"}.
+                {checkedInParticipants.length}/{activeRegistrationCount} active participants checked in.
               </p>
             </div>
             <Link className="button secondary-button button-link" href={`/tournaments/${tournament.id}/edit`}>
@@ -562,34 +1159,243 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             </Link>
           </div>
 
-          <div className="status-control">
-            <label htmlFor="tournament-status">
-              Status
-              <select
-                id="tournament-status"
-                value={selectedStatus}
-                onChange={(event) => setSelectedStatus(event.target.value as TournamentStatus)}
+          <div className="management-actions">
+            <div>
+              <h3>Status Controls</h3>
+              <p className="muted">
+                {tournamentStatusDescriptions[selectedStatus] ?? "Use the selected tournament status."}
+              </p>
+            </div>
+            <div className="status-control">
+              <label htmlFor="tournament-status">
+                Status
+                <select
+                  id="tournament-status"
+                  value={selectedStatus}
+                  onChange={(event) => setSelectedStatus(event.target.value as TournamentStatus)}
+                >
+                  {editableTournamentStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {tournamentStatusLabels[status]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="button"
+                disabled={savingAction === "status" || selectedStatus === tournament.status}
+                type="button"
+                onClick={updateTournamentStatus}
               >
-                {editableTournamentStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {tournamentStatusLabels[status]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              className="button"
-              disabled={savingAction === "status" || selectedStatus === tournament.status}
-              type="button"
-              onClick={updateTournamentStatus}
-            >
-              {savingAction === "status" ? "Saving..." : "Save Status"}
-            </button>
+                {savingAction === "status" ? "Saving..." : "Save Status"}
+              </button>
+            </div>
           </div>
 
-          <p className="muted">
-            {tournamentStatusDescriptions[selectedStatus] ?? "Use the selected tournament status."}
-          </p>
+          <div className="management-actions">
+            <div>
+              <h3>Registration And Check-In</h3>
+              <p className="muted">Close registration before opening player check-in.</p>
+            </div>
+            <div className="role-actions">
+              <button
+                className="button secondary-button"
+                disabled={savingAction === "close" || tournament.status === "registration_closed"}
+                type="button"
+                onClick={() =>
+                  updateTournamentStatusTo(
+                    "registration_closed",
+                    "Registration closed.",
+                    "close",
+                  )
+                }
+              >
+                {savingAction === "close" ? "Closing..." : "Close Registration"}
+              </button>
+              <button
+                className="button secondary-button"
+                disabled={savingAction === "status" || tournament.status === "check_in"}
+                type="button"
+                onClick={() =>
+                  updateTournamentStatusTo(
+                    "check_in",
+                    "Check-in opened.",
+                    "status",
+                  )
+                }
+              >
+                Open Check-In
+              </button>
+              <button
+                className="button secondary-button"
+                disabled={
+                  savingAction === "reopen" ||
+                  tournament.status === "registration_open" ||
+                  Boolean(reopenBlockedReason)
+                }
+                type="button"
+                onClick={() =>
+                  updateTournamentStatusTo(
+                    "registration_open",
+                    "Registration reopened.",
+                    "reopen",
+                  )
+                }
+              >
+                {savingAction === "reopen" ? "Reopening..." : "Reopen Registration"}
+              </button>
+            </div>
+          </div>
+
+          <div className="management-actions">
+            <div>
+              <h3>Participant Check-In</h3>
+              <p className="muted">Manually include or remove registered players during check-in.</p>
+            </div>
+          </div>
+
+          <div className="participant-list">
+            {participants.length === 0 ? (
+              <p className="muted">No registered participants yet.</p>
+            ) : (
+              participants.map((participant) => (
+                <article className="participant-row" key={participant.registrationId}>
+                  <div>
+                    <strong>{participant.displayName}</strong>
+                    <p className="muted">
+                      {participant.checkIn
+                        ? `Checked in ${formatDateTime(participant.checkIn.checked_in_at)}`
+                        : "Not checked in"}
+                    </p>
+                  </div>
+                  <div className="role-actions">
+                    <span className="badge">
+                      {participant.checkIn ? "Checked In" : "Missing"}
+                    </span>
+                    {participant.checkIn ? (
+                      <button
+                        className="button secondary-button"
+                        disabled={savingAction === "manual-uncheck" || hasGeneratedBracket}
+                        type="button"
+                        onClick={() => manualUncheck(participant)}
+                      >
+                        Remove
+                      </button>
+                    ) : (
+                      <button
+                        className="button secondary-button"
+                        disabled={
+                          savingAction === "manual-check-in" ||
+                          hasGeneratedBracket ||
+                          tournament.status !== "check_in"
+                        }
+                        type="button"
+                        onClick={() => manualCheckIn(participant)}
+                      >
+                        Mark Checked In
+                      </button>
+                    )}
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+
+          <div className="management-actions">
+            <div>
+              <h3>Bracket Setup</h3>
+              <p className={bracketWarning ? "muted" : undefined}>
+                {bracketWarning ?? "Ready to generate the bracket from checked-in players."}
+              </p>
+            </div>
+            <div className="status-control">
+              <label htmlFor="bracket-size">
+                Bracket Size
+                <select
+                  id="bracket-size"
+                  disabled={hasGeneratedBracket}
+                  value={selectedBracketSize}
+                  onChange={(event) => updateBracketSize(Number(event.target.value))}
+                >
+                  {bracketSizes.map((size) => (
+                    <option key={size} value={size}>
+                      {size} players
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div className="round-format-grid">
+            {roundFormats.map((format, index) => (
+              <label key={`${selectedBracketSize}-${index}`} htmlFor={`round-format-${index}`}>
+                {getRoundName(selectedBracketSize, index + 1)}
+                <select
+                  id={`round-format-${index}`}
+                  disabled={hasGeneratedBracket}
+                  value={format}
+                  onChange={(event) => {
+                    const nextFormats = roundFormats.slice();
+                    nextFormats[index] = event.target.value as MatchFormat;
+                    setRoundFormats(nextFormats);
+                  }}
+                >
+                  {matchFormats.map((matchFormat) => (
+                    <option key={matchFormat} value={matchFormat}>
+                      {matchFormatLabels[matchFormat]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+
+          <div className="management-actions">
+            <div>
+              <h3>Generate Matches</h3>
+              <p className="muted">
+                Generation creates all rounds, first-round matches, bye advancements, and TBD placeholders.
+              </p>
+            </div>
+            <div className="role-actions">
+              <button
+                className="button"
+                disabled={
+                  savingAction === "generate" ||
+                  hasGeneratedBracket ||
+                  checkedInParticipants.length < 2 ||
+                  checkedInParticipants.length > selectedBracketSize
+                }
+                type="button"
+                onClick={generateBracket}
+              >
+                {savingAction === "generate" ? "Generating..." : "Generate Bracket"}
+              </button>
+              <button
+                className="button secondary-button"
+                disabled={savingAction === "activate" || !hasGeneratedBracket || tournament.status === "active"}
+                type="button"
+                onClick={() =>
+                  updateTournamentStatusTo(
+                    "active",
+                    "Tournament set active.",
+                    "activate",
+                  )
+                }
+              >
+                Set Active
+              </button>
+              <button
+                className="button danger-button"
+                disabled={savingAction === "reset" || !hasGeneratedBracket}
+                type="button"
+                onClick={resetBracket}
+              >
+                {savingAction === "reset" ? "Resetting..." : "Reset Bracket"}
+              </button>
+            </div>
+          </div>
 
           <div className="management-actions">
             <div>
@@ -608,55 +1414,6 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               {savingAction === "cancel" ? "Cancelling..." : "Cancel Tournament"}
             </button>
           </div>
-
-          {roles.isAdmin ? (
-            <div className="management-actions">
-              <div>
-                <h3>Admin Registration Controls</h3>
-                <p className={reopenBlockedReason ? "muted" : undefined}>
-                  {reopenBlockedReason ??
-                    "Registration can be reopened because the close time is in the future."}
-                </p>
-              </div>
-              <div className="role-actions">
-                <button
-                  className="button secondary-button"
-                  disabled={
-                    savingAction === "reopen" ||
-                    tournament.status === "registration_open" ||
-                    Boolean(reopenBlockedReason)
-                  }
-                  type="button"
-                  onClick={() =>
-                    updateTournamentStatusTo(
-                      "registration_open",
-                      "Registration reopened.",
-                      "reopen",
-                    )
-                  }
-                >
-                  {savingAction === "reopen" ? "Reopening..." : "Reopen Registration"}
-                </button>
-                <button
-                  className="button secondary-button"
-                  disabled={
-                    savingAction === "close" ||
-                    tournament.status === "registration_closed"
-                  }
-                  type="button"
-                  onClick={() =>
-                    updateTournamentStatusTo(
-                      "registration_closed",
-                      "Registration closed.",
-                      "close",
-                    )
-                  }
-                >
-                  {savingAction === "close" ? "Closing..." : "Close Registration"}
-                </button>
-              </div>
-            </div>
-          ) : null}
 
           <div className="management-actions">
             <div>
