@@ -3,6 +3,7 @@ import type { Database } from "@/types/database.generated";
 export type BracketSize = 4 | 8 | 16 | 32;
 export type MatchFormat = Database["public"]["Enums"]["match_format"];
 export type MatchStatus = Database["public"]["Enums"]["match_status"];
+export type SeedingMethod = Database["public"]["Enums"]["tournament_seeding_method"];
 
 export type BracketPlayer = {
   userId: string;
@@ -30,6 +31,17 @@ type BracketSlot = {
 };
 
 export const bracketSizes: BracketSize[] = [4, 8, 16, 32];
+export const seedingMethods: SeedingMethod[] = [
+  "random",
+  "registration_order",
+  "check_in_order",
+];
+
+export const seedingMethodLabels: Record<SeedingMethod, string> = {
+  check_in_order: "Check-in Order",
+  random: "Random",
+  registration_order: "Registration Order",
+};
 
 export function isBracketSize(value: number): value is BracketSize {
   return bracketSizes.includes(value as BracketSize);

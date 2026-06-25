@@ -11,7 +11,10 @@ import {
   getDefaultRoundFormats,
   getRoundName,
   isBracketSize,
+  seedingMethodLabels,
+  seedingMethods,
   type BracketSize,
+  type SeedingMethod,
 } from "@/lib/brackets";
 import { formatError, logError } from "@/lib/errors";
 import { ensureProfile } from "@/lib/profiles";
@@ -108,6 +111,37 @@ function isActiveRegistration(registration: TournamentRegistrationRow | null) {
   );
 }
 
+function shuffleParticipants(participants: Participant[]) {
+  const shuffled = participants.slice();
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+
+  return shuffled;
+}
+
+function orderParticipantsForSeeding(
+  participants: Participant[],
+  seedingMethod: SeedingMethod,
+) {
+  if (seedingMethod === "random") {
+    return shuffleParticipants(participants);
+  }
+
+  return participants.slice().sort((first, second) => {
+    if (seedingMethod === "registration_order") {
+      return first.registeredAt.localeCompare(second.registeredAt) || first.userId.localeCompare(second.userId);
+    }
+
+    const firstCheckedAt = first.checkIn?.checked_in_at ?? first.registeredAt;
+    const secondCheckedAt = second.checkIn?.checked_in_at ?? second.registeredAt;
+
+    return firstCheckedAt.localeCompare(secondCheckedAt) || first.userId.localeCompare(second.userId);
+  });
+}
+
 export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const router = useRouter();
   const [supabase] = useState(() => createClient());
@@ -127,6 +161,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const [isManagedByUser, setIsManagedByUser] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<TournamentStatus>("draft");
   const [selectedBracketSize, setSelectedBracketSize] = useState<BracketSize>(4);
+  const [selectedSeedingMethod, setSelectedSeedingMethod] = useState<SeedingMethod>("random");
   const [roundFormats, setRoundFormats] = useState<MatchFormat[]>(getDefaultRoundFormats(4));
   const [adminDeleteConfirmation, setAdminDeleteConfirmation] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -266,6 +301,8 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
 
         const userIds = Array.from(
           new Set([
+            loadedTournament.created_by,
+            ...stagesResult.data.map((stage) => stage.generated_by),
             ...registrationRows.map((row) => row.user_id),
             ...matchesResult.data.flatMap((match) => [
               match.player_one_id,
@@ -308,8 +345,15 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       } else {
         const matchUserIds = Array.from(
           new Set(
-            matchesResult.data
-              .flatMap((match) => [match.player_one_id, match.player_two_id, match.winner_id])
+            [
+              loadedTournament.created_by,
+              ...stagesResult.data.map((stage) => stage.generated_by),
+              ...matchesResult.data.flatMap((match) => [
+                match.player_one_id,
+                match.player_two_id,
+                match.winner_id,
+              ]),
+            ]
               .filter(Boolean) as string[],
           ),
         );
@@ -359,6 +403,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       const firstStage = stagesResult.data[0];
       if (firstStage && isBracketSize(firstStage.bracket_size)) {
         setSelectedBracketSize(firstStage.bracket_size);
+        setSelectedSeedingMethod(firstStage.seeding_method);
       }
     } catch (caughtError) {
       logError("Tournament detail load failed.", caughtError);
@@ -674,14 +719,10 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     let createdStageId: string | null = null;
 
     try {
-      const seededPlayers = checkedInParticipants
-        .slice()
-        .sort((first, second) => {
-          const firstCheckedAt = first.checkIn?.checked_in_at ?? first.registeredAt;
-          const secondCheckedAt = second.checkIn?.checked_in_at ?? second.registeredAt;
-
-          return firstCheckedAt.localeCompare(secondCheckedAt) || first.userId.localeCompare(second.userId);
-        })
+      const seededPlayers = orderParticipantsForSeeding(
+        checkedInParticipants,
+        selectedSeedingMethod,
+      )
         .map((participant, index) => ({
           userId: participant.userId,
           seed: index + 1,
@@ -695,6 +736,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           name: "Single Elimination",
           bracket_type: "single_elimination",
           bracket_size: selectedBracketSize,
+          seeding_method: selectedSeedingMethod,
           generated_by: user.id,
         })
         .select()
@@ -1079,9 +1121,25 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       <section className="card">
         <h2>Bracket</h2>
         {activeStage ? (
-          <p className="muted">
-            {activeStage.name}, {activeStage.bracket_size} players. Round formats are stored on each round.
-          </p>
+          <>
+            <p className="muted">
+              {activeStage.name}, {activeStage.bracket_size} players. Round formats are stored on each round.
+            </p>
+            <dl className="meta-grid">
+              <div>
+                <dt>Seeding</dt>
+                <dd>{seedingMethodLabels[activeStage.seeding_method]}</dd>
+              </div>
+              <div>
+                <dt>Generated By</dt>
+                <dd>{getProfileName(profileMap, activeStage.generated_by) ?? "Tournament staff"}</dd>
+              </div>
+              <div>
+                <dt>Generated At</dt>
+                <dd>{formatDateTime(activeStage.created_at)}</dd>
+              </div>
+            </dl>
+          </>
         ) : (
           <p className="muted">No bracket has been generated yet.</p>
         )}
@@ -1324,6 +1382,21 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                   ))}
                 </select>
               </label>
+              <label htmlFor="seeding-method">
+                Seeding
+                <select
+                  id="seeding-method"
+                  disabled={hasGeneratedBracket}
+                  value={selectedSeedingMethod}
+                  onChange={(event) => setSelectedSeedingMethod(event.target.value as SeedingMethod)}
+                >
+                  {seedingMethods.map((method) => (
+                    <option key={method} value={method}>
+                      {seedingMethodLabels[method]}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
 
@@ -1355,7 +1428,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             <div>
               <h3>Generate Matches</h3>
               <p className="muted">
-                Generation creates all rounds, first-round matches, bye advancements, and TBD placeholders.
+                Generation creates all rounds, seeds players by {seedingMethodLabels[selectedSeedingMethod].toLowerCase()}, first-round matches, bye advancements, and TBD placeholders.
               </p>
             </div>
             <div className="role-actions">

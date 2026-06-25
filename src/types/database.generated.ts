@@ -829,6 +829,7 @@ export type Database = {
           generated_by: string | null
           id: string
           name: string
+          seeding_method: Database["public"]["Enums"]["tournament_seeding_method"]
           stage_number: number
           tournament_id: string
           updated_at: string
@@ -840,6 +841,7 @@ export type Database = {
           generated_by?: string | null
           id?: string
           name?: string
+          seeding_method?: Database["public"]["Enums"]["tournament_seeding_method"]
           stage_number?: number
           tournament_id: string
           updated_at?: string
@@ -851,6 +853,7 @@ export type Database = {
           generated_by?: string | null
           id?: string
           name?: string
+          seeding_method?: Database["public"]["Enums"]["tournament_seeding_method"]
           stage_number?: number
           tournament_id?: string
           updated_at?: string
@@ -1047,6 +1050,10 @@ export type Database = {
         | "replay_required"
       side_choice: "red" | "blue"
       tournament_format: "single_elimination"
+      tournament_seeding_method:
+        | "random"
+        | "registration_order"
+        | "check_in_order"
       tournament_status:
         | "draft"
         | "published"
@@ -1235,6 +1242,11 @@ export const Constants = {
       ],
       side_choice: ["red", "blue"],
       tournament_format: ["single_elimination"],
+      tournament_seeding_method: [
+        "random",
+        "registration_order",
+        "check_in_order",
+      ],
       tournament_status: [
         "draft",
         "published",
