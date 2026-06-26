@@ -17,6 +17,11 @@ import {
   type SeedingMethod,
 } from "@/lib/brackets";
 import { formatError, logError } from "@/lib/errors";
+import {
+  getMatchSlotFallback,
+  getNonPlayableMatchMessage,
+  isPlayableMatch,
+} from "@/lib/match-rooms";
 import { ensureProfile } from "@/lib/profiles";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
@@ -246,6 +251,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const [savingAction, setSavingAction] = useState<SavingAction>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const loadTournament = useCallback(async () => {
     try {
@@ -477,6 +483,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       setIsManagedByUser(Boolean(organizerAccessResult.data));
       setSelectedStatus(loadedTournament.status);
       setAdminDeleteConfirmation("");
+      setLastUpdatedAt(new Date());
 
       const firstStage = stagesResult.data[0];
       if (firstStage && isBracketSize(firstStage.bracket_size)) {
@@ -495,8 +502,14 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     const timeoutId = window.setTimeout(() => {
       void loadTournament();
     }, 0);
+    const intervalId = window.setInterval(() => {
+      void loadTournament();
+    }, 15_000);
 
-    return () => window.clearTimeout(timeoutId);
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+    };
   }, [loadTournament]);
 
   const canManageTournament = useMemo(() => {
@@ -1222,6 +1235,9 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           <span className="badge">{tournamentStatusLabels[tournament.status]}</span>
           <h1>{tournament.name}</h1>
           <p className="muted">Organized by {organizer?.display_name ?? "Tournament staff"}</p>
+          {lastUpdatedAt ? (
+            <p className="muted">Last updated {lastUpdatedAt.toLocaleTimeString()}.</p>
+          ) : null}
         </div>
         {canManageTournament ? (
           <Link className="button secondary-button button-link" href="/organizer">
@@ -1245,6 +1261,21 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           <p className="muted">Recommended next action: {statusGuidance.next}</p>
         </section>
       ) : null}
+
+      <section className="card">
+        <h2>Player Action Needed</h2>
+        {!user ? (
+          <p className="muted">Sign in to register, check in, or open assigned match rooms.</p>
+        ) : canCheckIn ? (
+          <p className="notice">Tournament check-in is open for you.</p>
+        ) : canRegister ? (
+          <p className="notice">Registration is open for this free-entry tournament.</p>
+        ) : registration?.status && registration.status !== "withdrawn" ? (
+          <p className="muted">You are registered. Watch this page for check-in and match room updates.</p>
+        ) : (
+          <p className="muted">No player action is needed from this account right now.</p>
+        )}
+      </section>
 
       <section className="grid">
         <div className="card">
@@ -1401,9 +1432,8 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                 </div>
                 <div className="match-list">
                   {roundMatches.map((match) => {
-                    const playerOneFallback = match.player_two_id ? "TBD" : "BYE";
-                    const playerTwoFallback = match.player_one_id ? "BYE" : "TBD";
-                    const shouldLinkMatch = match.status !== "bye";
+                    const shouldLinkMatch = isPlayableMatch(match);
+                    const nonPlayableMessage = getNonPlayableMatchMessage(match, profileMap);
 
                     return (
                       <article className="match-row" key={match.id}>
@@ -1414,17 +1444,19 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                               match.player_one_id,
                               profileMap,
                               match.player_one_seed,
-                              playerOneFallback,
+                              getMatchSlotFallback(match, "one"),
                             )}{" "}
                             vs{" "}
                             {describeMatchSlot(
                               match.player_two_id,
                               profileMap,
                               match.player_two_seed,
-                              playerTwoFallback,
+                              getMatchSlotFallback(match, "two"),
                             )}
                           </p>
-                          {match.winner_id ? (
+                          {nonPlayableMessage ? (
+                            <p className="muted">{nonPlayableMessage}</p>
+                          ) : match.winner_id ? (
                             <p className="notice">
                               Winner: {getProfileName(profileMap, match.winner_id) ?? "Player"}
                             </p>
@@ -1445,7 +1477,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                               Match Room
                             </Link>
                           ) : (
-                            <span className="muted">BYE, no room action</span>
+                            <span className="muted">No room action</span>
                           )}
                         </div>
                       </article>

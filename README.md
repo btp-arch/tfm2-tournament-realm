@@ -132,12 +132,24 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 ### Results, evidence, and disputes
 
 - Match rooms support player result reporting after the match reaches `In Game`.
+- Normal winner reporting asks only for the winner and optional notes. Evidence is not requested during aligned result reporting.
 - Both players report the winner. If reports match, the result finalizes automatically and the winner advances in the single-elimination bracket.
 - If reports differ, both players see a mismatch confirmation state. A player can change their report; if reports align, the match finalizes.
 - If both players confirm different winners, a dispute opens for organizer/admin review.
 - Staff can resolve review by confirming a winner, requiring replay, or marking no contest. Confirming a winner finalizes the match and advances that player.
+- Evidence upload appears only in review contexts, such as an open dispute or organizer/admin review panel.
 - Evidence uploads use the private `match-evidence` Supabase Storage bucket. Images are limited to PNG, JPG/JPEG, or WEBP, 5 MB each, and 3 uploads per player report.
 - Evidence metadata stores match/report/user, type, file path/name, MIME type, size, notes, `expires_at`, and `retained_by_admin`. The MVP records a 30-day expiration timestamp but does not run automatic cleanup yet.
+
+### Live UX and notifications
+
+- Match setup is locked after a match moves past `awaiting_host_setup`, after lobby setup completes, after result reports exist, or after review/finalization begins. Staff must use the explicit reset action to recover setup.
+- In-app notifications are stored in the private `notifications` table. Users can read/update/delete their own notifications; admins can manage notifications through RLS.
+- Database triggers create notifications for tournament check-in opening, opponent check-in, match room ready, host assignment, result reporting needed, report mismatch, dispute opened/resolved, and player advancement.
+- The top navigation includes a notifications menu with unread count, recent items, and mark-all-read.
+- `/notifications` shows notification history with per-item and mark-all-read controls.
+- A site-wide active action banner polls for the highest-priority signed-in user action and links directly to the tournament or match.
+- Live pages poll for updates: match rooms and notifications every 12 seconds, tournament detail and organizer dashboard every 15 seconds.
 
 ### Manual tournament smoke test
 
@@ -200,16 +212,17 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 2. Start the app with `npm run dev`.
 3. Use an active tournament with a generated bracket and at least one non-BYE player-vs-player match.
 4. Open the tournament detail page and click Match Room on a real match.
-5. Confirm `/matches/[id]` shows tournament, round, match number, player names, match format, status, lobby instructions, patch/game version as not specified, and the timeline.
+5. Confirm `/matches/[id]` shows the Current Step card, tournament, round, match ID, player names, BO format, host/sides, lobby name instruction, lobby instructions, and the timeline.
 6. Sign in as Player A and check in for the match.
 7. Sign in as Player B and check in for the match.
 8. Confirm both check-ins move the match to host setup and randomly assign either player as host.
 9. Confirm the host is shown as Blue, the guest is shown as Red, and the lobby name is the guest/opponent display name.
 10. As the assigned host, create a public friendly game in TFM2 using the shown lobby name, then click Match Created.
 11. Confirm the match status becomes In Game without a guest joined click.
-12. Sign in as a non-participant and confirm public match info is visible but player action buttons are unavailable.
-13. Sign in as organizer/admin and confirm staff can reset the match room, assign/reassign host, mark Match Created, and resolve match review.
-14. Open BYE/TBD matches and confirm they clearly show that no player match-room action is required yet.
+12. Confirm the Match Created button is disabled after the match reaches In Game, after reports exist, and after the result is confirmed.
+13. Sign in as a non-participant and confirm public match info is visible but player action buttons are unavailable.
+14. Sign in as organizer/admin and confirm staff can reset the match room, assign/reassign host before setup is past, mark Match Created, and resolve match review.
+15. Open BYE/TBD matches and confirm they clearly show that no player match-room action is required yet.
 
 ### Manual result reporting smoke test
 
@@ -217,7 +230,7 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 2. Start the app with `npm run dev`.
 3. Use an active tournament with a generated match between two signed-in player accounts.
 4. Move the match to `In Game` through match-room check-in and host `Match Created`.
-5. As Player A, report Player A as winner and optionally upload one PNG/JPG/WEBP screenshot.
+5. As Player A, report Player A as winner without uploading evidence.
 6. As Player B, report Player A as winner.
 7. Confirm the match finalizes, shows the winner, and advances the winner to the next-round TBD slot or completes the tournament if it was the final.
 8. On another match, have Player A report Player A and Player B report Player B.
@@ -225,9 +238,24 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 10. Have one player change their report to match the other and confirm the match auto-finalizes.
 11. Repeat the mismatch path, then have both players confirm their different reports.
 12. Confirm the match becomes disputed and appears as needing review on `/organizer`.
-13. As organizer/admin, resolve by confirming a winner and verify advancement.
-14. Confirm participants/staff can open signed evidence links.
-15. Confirm non-participants cannot upload evidence, mutate reports, or view private evidence links.
+13. Confirm the Review Evidence section appears for the disputed match and a participant can upload one PNG/JPG/WEBP screenshot.
+14. As organizer/admin, confirm the review panel shows both player reports, confirmation states, evidence links, and resolution controls.
+15. Resolve by confirming a winner and verify advancement.
+16. Confirm non-participants cannot upload evidence, mutate reports, or view private evidence links.
+
+### Manual live UX and notifications smoke test
+
+1. Apply migrations and regenerate types for your target environment.
+2. Start the app with `npm run dev`.
+3. Open two signed-in player sessions and one organizer/admin session.
+4. Move a tournament to `Check-In` and confirm registered players receive a notification and active action banner.
+5. Have Player A check in for a match and confirm Player B sees an opponent check-in notification without refreshing after polling.
+6. Have both players check in and confirm the host sees a host assignment notification and active action banner.
+7. Have the host click Match Created and confirm both players see result-report actions after polling.
+8. Submit mismatched reports and confirm both players receive mismatch notifications.
+9. Confirm different reports from both players and verify dispute notifications plus organizer/admin active review banner.
+10. Resolve the dispute and confirm dispute resolved and player advanced notifications.
+11. Open `/notifications`, mark one item read, then mark all read and confirm the nav unread count updates.
 
 ## First admin bootstrap
 

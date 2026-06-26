@@ -33,6 +33,7 @@ export function OrganizerDashboard() {
   const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
   const [reviewCounts, setReviewCounts] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const tournamentsByStatus = useMemo(() => {
@@ -177,6 +178,7 @@ export function OrganizerDashboard() {
           setTournaments(managedTournaments);
           setRegistrationCounts(countsByTournament);
           setReviewCounts(reviewsByTournament);
+          setLastUpdatedAt(new Date());
         }
       } catch (caughtError) {
         if (isMounted) {
@@ -192,8 +194,13 @@ export function OrganizerDashboard() {
 
     loadDashboard();
 
+    const intervalId = window.setInterval(() => {
+      void loadDashboard();
+    }, 15_000);
+
     return () => {
       isMounted = false;
+      window.clearInterval(intervalId);
     };
   }, [loadManagedTournaments, loadRegistrationCounts, loadReviewCounts, router, supabase]);
 
@@ -215,6 +222,9 @@ export function OrganizerDashboard() {
     <>
       <h1>Organizer Dashboard</h1>
       <p className="muted">Signed in as {profile.display_name}.</p>
+      {lastUpdatedAt ? (
+        <p className="muted">Last updated {lastUpdatedAt.toLocaleTimeString()}.</p>
+      ) : null}
 
       <section className="grid">
         <div className="card">

@@ -8,13 +8,18 @@ import {
   describeCheckInStatus,
   describeEvent,
   getActionMessage,
+  getCurrentStepLabel,
   getGuestId,
   getMatchLabel,
+  getMatchSlotFallback,
+  getNonPlayableMatchMessage,
   getOpponentId,
   getProfileName,
+  getReportConfirmationLabel,
   getReportedWinnerName,
   isMatchBye,
   isMatchWaiting,
+  isPlayableMatch,
   type PublicProfile,
 } from "@/lib/match-rooms";
 import { ensureProfile } from "@/lib/profiles";
@@ -46,6 +51,7 @@ type SavingAction =
   | "assign-player-two"
   | "report"
   | "confirm-report"
+  | "upload-evidence"
   | "resolve"
   | null;
 
@@ -91,6 +97,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
   const [reportNotes, setReportNotes] = useState("");
   const [evidenceType, setEvidenceType] = useState<MatchEvidenceType>("result_screen");
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
+  const [evidenceNotes, setEvidenceNotes] = useState("");
   const [resolutionAction, setResolutionAction] = useState<MatchResolutionAction>("confirm_winner");
   const [resolutionWinnerId, setResolutionWinnerId] = useState("");
   const [resolutionNote, setResolutionNote] = useState("");
@@ -98,6 +105,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
   const [savingAction, setSavingAction] = useState<SavingAction>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const loadMatch = useCallback(async () => {
     try {
@@ -294,6 +302,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
       setEvidenceUrls(signedEvidenceUrls);
       setProfileMap(loadedProfileMap);
       setCanManageMatch(managed);
+      setLastUpdatedAt(new Date());
 
       const ownLoadedReport = currentUser
         ? loadedReports.find((report) => report.reporter_id === currentUser.id)
@@ -317,8 +326,14 @@ export function MatchRoom({ matchId }: { matchId: string }) {
     const timeoutId = window.setTimeout(() => {
       void loadMatch();
     }, 0);
+    const intervalId = window.setInterval(() => {
+      void loadMatch();
+    }, 12_000);
 
-    return () => window.clearTimeout(timeoutId);
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+    };
   }, [loadMatch]);
 
   const playerOneCheckIn = match
@@ -341,6 +356,8 @@ export function MatchRoom({ matchId }: { matchId: string }) {
   const guestName = getProfileName(profileMap, guestId);
   const playerOneName = match ? getProfileName(profileMap, match.player_one_id) ?? "Player A" : "Player A";
   const playerTwoName = match ? getProfileName(profileMap, match.player_two_id) ?? "Player B" : "Player B";
+  const playableMatch = match ? isPlayableMatch(match) : false;
+  const nonPlayableMessage = match ? getNonPlayableMatchMessage(match, profileMap) : null;
   const lobbyName = guestName ?? "Opponent display name";
   const playerOneReport = match
     ? reports.find((report) => report.reporter_id === match.player_one_id) ?? null
@@ -365,6 +382,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
     : [];
   const canReportResult = Boolean(
     match &&
+      playableMatch &&
       isParticipant &&
       match.player_one_id &&
       match.player_two_id &&
@@ -376,6 +394,32 @@ export function MatchRoom({ matchId }: { matchId: string }) {
       reportsMismatch &&
       ownReport.confirmation_state !== "confirmed_current",
   );
+  const reviewOpen = Boolean(
+    openDispute || match?.status === "disputed" || match?.status === "needs_admin",
+  );
+  const matchPastSetup = Boolean(
+    match &&
+      (match.status === "in_game" ||
+        match.status === "result_reported" ||
+        match.status === "disputed" ||
+        match.status === "needs_admin" ||
+        match.status === "replay_required" ||
+        match.status === "confirmed" ||
+        match.status === "finalized" ||
+        match.winner_id ||
+        reports.length > 0 ||
+        openDispute),
+  );
+  const setupStatusMessage = matchPastSetup
+    ? "Match is past setup."
+    : match?.game_created_at
+      ? "Lobby setup is complete."
+      : "Lobby setup is not complete yet.";
+  const showEvidenceReview = Boolean(reviewOpen || canManageMatch);
+  const evidenceUploadsRemaining = Math.max(0, maxEvidenceUploads - ownReportEvidence.length);
+  const canUploadEvidence = Boolean(
+    isParticipant && ownReport && showEvidenceReview && evidenceUploadsRemaining > 0,
+  );
   const actionMessage = match
     ? getActionMessage(
         match,
@@ -386,18 +430,40 @@ export function MatchRoom({ matchId }: { matchId: string }) {
         opponentCheckIn,
       )
     : null;
+  const currentStepLabel = match
+    ? getCurrentStepLabel({
+        match,
+        userId: user?.id ?? null,
+        isParticipant,
+        ownCheckIn,
+        opponentCheckIn,
+        ownReport,
+        bothReportsSubmitted,
+        reportsMismatch,
+        reviewOpen,
+      })
+    : null;
   const canUsePlayerActions = Boolean(
     match &&
+      playableMatch &&
       user &&
       !isMatchBye(match) &&
       !isMatchWaiting(match) &&
       (isParticipant || canManageMatch),
   );
-  const canCheckIn = Boolean(canUsePlayerActions && isParticipant && !ownCheckIn);
+  const canCheckIn = Boolean(
+    canUsePlayerActions &&
+      isParticipant &&
+      !ownCheckIn &&
+      !matchPastSetup &&
+      (match?.status === "assigned" || match?.status === "check_in_open"),
+  );
   const canMarkGameCreated = Boolean(
     canUsePlayerActions &&
       match?.host_user_id &&
-      match.status !== "in_game" &&
+      match.status === "awaiting_host_setup" &&
+      !match.game_created_at &&
+      !matchPastSetup &&
       (user?.id === match.host_user_id || canManageMatch),
   );
   const orderedEvents = useMemo(() => events.slice().reverse(), [events]);
@@ -548,7 +614,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
         mime_type: file.type,
         file_size_bytes: file.size,
         evidence_type: evidenceType,
-        notes: reportNotes.trim() || null,
+        notes: evidenceNotes.trim() || null,
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       });
 
@@ -566,24 +632,34 @@ export function MatchRoom({ matchId }: { matchId: string }) {
     await runMatchAction(
       "report",
       async () => {
-        const files = evidenceFiles.slice(0, maxEvidenceUploads);
-        const { data: report, error: rpcError } = await supabase.rpc("submit_match_report", {
+        const { error: rpcError } = await supabase.rpc("submit_match_report", {
           target_match: match.id,
           reported_winner: reportWinnerId,
-          report_notes: reportNotes.trim() || null,
+          report_notes: reportNotes.trim() || undefined,
         });
 
         if (rpcError) {
           throw rpcError;
         }
-
-        if (report) {
-          await uploadEvidenceFiles(report as MatchReportRow, files);
-        }
       },
       "Result report submitted.",
     );
+  }
+
+  async function uploadReviewEvidence() {
+    if (!match || !ownReport || evidenceFiles.length === 0) {
+      return;
+    }
+
+    await runMatchAction(
+      "upload-evidence",
+      async () => {
+        await uploadEvidenceFiles(ownReport, evidenceFiles.slice(0, maxEvidenceUploads));
+      },
+      "Evidence uploaded for review.",
+    );
     setEvidenceFiles([]);
+    setEvidenceNotes("");
   }
 
   async function confirmCurrentReport() {
@@ -617,8 +693,8 @@ export function MatchRoom({ matchId }: { matchId: string }) {
         const { error: rpcError } = await supabase.rpc("resolve_match_dispute", {
           target_match: match.id,
           resolution_action: resolutionAction,
-          selected_winner: resolutionAction === "confirm_winner" ? resolutionWinnerId : null,
-          resolution_notes: resolutionNote.trim() || null,
+          selected_winner: resolutionAction === "confirm_winner" ? resolutionWinnerId : undefined,
+          resolution_notes: resolutionNote.trim() || undefined,
         });
 
         if (rpcError) {
@@ -646,6 +722,67 @@ export function MatchRoom({ matchId }: { matchId: string }) {
     );
   }
 
+  if (!playableMatch) {
+    const playerOneSlot = match.player_one_id ? playerOneName : getMatchSlotFallback(match, "one");
+    const playerTwoSlot = match.player_two_id ? playerTwoName : getMatchSlotFallback(match, "two");
+
+    return (
+      <>
+        <div className="section-heading">
+          <div>
+            <span className="badge">{matchStatusLabels[match.status]}</span>
+            <h1>{getMatchLabel(match)}</h1>
+            <p className="muted">
+              <Link href={`/tournaments/${tournament.id}`}>{tournament.name}</Link>
+              {round ? `, ${round.name}` : `, Round ${match.round_number}`}
+            </p>
+          </div>
+          <Link className="button secondary-button button-link" href={`/tournaments/${tournament.id}`}>
+            Back To Bracket
+          </Link>
+        </div>
+
+        {notice ? <p className="notice">{notice}</p> : null}
+        {error ? <p className="error">{error}</p> : null}
+
+        <section className="card">
+          <span className="badge">No Match Room Action</span>
+          <h2>{nonPlayableMessage ?? "No playable match is available yet."}</h2>
+          <p className="muted">
+            BYE and TBD bracket placeholders do not use check-in, lobby setup, result reporting, disputes, or evidence uploads.
+          </p>
+          <dl className="meta-grid">
+            <div>
+              <dt>Player A Slot</dt>
+              <dd>{playerOneSlot}</dd>
+            </div>
+            <div>
+              <dt>Player B Slot</dt>
+              <dd>{playerTwoSlot}</dd>
+            </div>
+            <div>
+              <dt>Match ID</dt>
+              <dd className="mono-text">{match.id}</dd>
+            </div>
+            <div>
+              <dt>Status</dt>
+              <dd>{matchStatusLabels[match.status]}</dd>
+            </div>
+            {match.winner_id ? (
+              <div>
+                <dt>Advancing Player</dt>
+                <dd>{getProfileName(profileMap, match.winner_id) ?? "Player"}</dd>
+              </div>
+            ) : null}
+          </dl>
+          {canManageMatch ? (
+            <p className="muted">Staff context: raw status {match.status}.</p>
+          ) : null}
+        </section>
+      </>
+    );
+  }
+
   return (
     <>
       <div className="section-heading">
@@ -665,50 +802,72 @@ export function MatchRoom({ matchId }: { matchId: string }) {
       {notice ? <p className="notice">{notice}</p> : null}
       {error ? <p className="error">{error}</p> : null}
 
-      <section className="grid">
-        <div className="card">
-          <h2>Players</h2>
-          <dl className="meta-grid single-column">
-            <div>
-              <dt>Player A</dt>
-              <dd>{getProfileName(profileMap, match.player_one_id) ?? "TBD"}</dd>
-            </div>
-            <div>
-              <dt>Player B</dt>
-              <dd>{getProfileName(profileMap, match.player_two_id) ?? (isMatchBye(match) ? "BYE" : "TBD")}</dd>
-            </div>
-          </dl>
-        </div>
-
-        <div className="card">
-          <h2>Match</h2>
-          <dl className="meta-grid single-column">
-            <div>
-              <dt>Format</dt>
-              <dd>{matchFormatLabels[match.format]}</dd>
-            </div>
-            <div>
-              <dt>Patch/Game Version</dt>
-              <dd>Not specified</dd>
-            </div>
-            <div>
-              <dt>Match ID</dt>
-              <dd className="mono-text">{match.id}</dd>
-            </div>
-          </dl>
-        </div>
-      </section>
-
       <section className="card">
         <div className="section-heading">
           <div>
-            <h2>Room Status</h2>
+            <span className="badge">Current Step</span>
+            <h2>{currentStepLabel}</h2>
             <p className="muted">{actionMessage}</p>
+            <p className="muted">{setupStatusMessage}</p>
+            {lastUpdatedAt ? (
+              <p className="muted">Last updated {lastUpdatedAt.toLocaleTimeString()}.</p>
+            ) : null}
           </div>
           {roles.isAdmin ? <span className="badge">Admin</span> : canManageMatch ? <span className="badge">Staff</span> : null}
         </div>
 
+        {canUsePlayerActions ? (
+          <div className="match-action-grid primary-actions">
+            {isParticipant ? (
+              <button
+                className="button"
+                disabled={!canCheckIn || savingAction === "check-in"}
+                type="button"
+                onClick={checkInForMatch}
+              >
+                {savingAction === "check-in" ? "Checking In..." : ownCheckIn ? "Checked In" : "Check In"}
+              </button>
+            ) : null}
+
+            <button
+              className="button"
+              disabled={!canMarkGameCreated || savingAction === "game-created"}
+              type="button"
+              onClick={markGameCreated}
+            >
+              {savingAction === "game-created" ? "Saving..." : "Match Created"}
+            </button>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="card">
+        <h2>Match Summary</h2>
         <dl className="meta-grid">
+          <div>
+            <dt>Tournament</dt>
+            <dd>{tournament.name}</dd>
+          </div>
+          <div>
+            <dt>Round</dt>
+            <dd>{round ? round.name : `Round ${match.round_number}`}</dd>
+          </div>
+          <div>
+            <dt>Match ID</dt>
+            <dd className="mono-text">{match.id}</dd>
+          </div>
+          <div>
+            <dt>Player A</dt>
+            <dd>{playerOneName}</dd>
+          </div>
+          <div>
+            <dt>Player B</dt>
+            <dd>{getProfileName(profileMap, match.player_two_id) ?? (isMatchBye(match) ? "BYE" : "TBD")}</dd>
+          </div>
+          <div>
+            <dt>BO Format</dt>
+            <dd>{matchFormatLabels[match.format]}</dd>
+          </div>
           <div>
             <dt>Player A Check-In</dt>
             <dd>
@@ -751,37 +910,13 @@ export function MatchRoom({ matchId }: { matchId: string }) {
           </div>
           <div>
             <dt>Lobby Name</dt>
-            <dd>{match.host_user_id ? lobbyName : "Assigned after host is selected"}</dd>
+            <dd>{match.host_user_id ? lobbyName : "Use the guest/opponent display name after host is assigned"}</dd>
           </div>
           <div>
             <dt>Match Created</dt>
             <dd>{match.game_created_at ? formatDateTime(match.game_created_at) : "Not yet"}</dd>
           </div>
         </dl>
-
-        {canUsePlayerActions ? (
-          <div className="match-action-grid">
-            {isParticipant ? (
-              <button
-                className="button"
-                disabled={!canCheckIn || savingAction === "check-in"}
-                type="button"
-                onClick={checkInForMatch}
-              >
-                {savingAction === "check-in" ? "Checking In..." : ownCheckIn ? "Checked In" : "Check In"}
-              </button>
-            ) : null}
-
-            <button
-              className="button"
-              disabled={!canMarkGameCreated || savingAction === "game-created"}
-              type="button"
-              onClick={markGameCreated}
-            >
-              {savingAction === "game-created" ? "Saving..." : "Match Created"}
-            </button>
-          </div>
-        ) : null}
       </section>
 
       <section className="card">
@@ -800,9 +935,9 @@ export function MatchRoom({ matchId }: { matchId: string }) {
       <section className="card">
         <div className="section-heading">
           <div>
-            <h2>Result Reporting</h2>
+            <h2>Report Winner</h2>
             <p className="muted">
-              Both players report the winner. Matching reports finalize automatically; confirmed mismatches go to organizer review.
+              Each player chooses the winner. Matching reports finalize automatically; confirmed mismatches go to organizer review.
             </p>
           </div>
           {match.winner_id ? (
@@ -833,7 +968,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
             <dt>{playerOneName}</dt>
             <dd>
               {playerOneReport
-                ? `${getReportedWinnerName(playerOneReport, profileMap) ?? "Player"} reported${playerOneReport.confirmation_state === "confirmed_current" ? " and confirmed" : ""}`
+                ? `${getReportedWinnerName(playerOneReport, profileMap) ?? "Player"} reported, ${getReportConfirmationLabel(playerOneReport).toLowerCase()}`
                 : "No report"}
             </dd>
           </div>
@@ -841,7 +976,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
             <dt>{playerTwoName}</dt>
             <dd>
               {playerTwoReport
-                ? `${getReportedWinnerName(playerTwoReport, profileMap) ?? "Player"} reported${playerTwoReport.confirmation_state === "confirmed_current" ? " and confirmed" : ""}`
+                ? `${getReportedWinnerName(playerTwoReport, profileMap) ?? "Player"} reported, ${getReportConfirmationLabel(playerTwoReport).toLowerCase()}`
                 : "No report"}
             </dd>
           </div>
@@ -866,21 +1001,6 @@ export function MatchRoom({ matchId }: { matchId: string }) {
                   ) : null}
                 </select>
               </label>
-              <label htmlFor="evidence-type">
-                Evidence Type
-                <select
-                  id="evidence-type"
-                  disabled={!canReportResult}
-                  value={evidenceType}
-                  onChange={(event) => setEvidenceType(event.target.value as MatchEvidenceType)}
-                >
-                  {evidenceTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {matchEvidenceTypeLabels[type]}
-                    </option>
-                  ))}
-                </select>
-              </label>
             </div>
 
             <label className="wide-field" htmlFor="report-notes">
@@ -894,23 +1014,6 @@ export function MatchRoom({ matchId }: { matchId: string }) {
                 onChange={(event) => setReportNotes(event.target.value)}
               />
             </label>
-
-            <label className="wide-field" htmlFor="evidence-files">
-              Image Evidence
-              <input
-                accept="image/png,image/jpeg,image/webp"
-                disabled={!canReportResult || ownReportEvidence.length >= maxEvidenceUploads}
-                id="evidence-files"
-                multiple
-                type="file"
-                onChange={(event) =>
-                  setEvidenceFiles(Array.from(event.target.files ?? []).slice(0, maxEvidenceUploads))
-                }
-              />
-            </label>
-            <p className="muted">
-              Optional PNG, JPG/JPEG, or WEBP images. Max 5 MB each, 3 uploads per report.
-            </p>
 
             <div className="match-action-grid">
               <button
@@ -932,6 +1035,12 @@ export function MatchRoom({ matchId }: { matchId: string }) {
                 </button>
               ) : null}
             </div>
+
+            {reportsMismatch ? (
+              <p className="muted">
+                Keep your answer if it is correct, or change the winner and submit again. If both players confirm different winners, organizer review opens.
+              </p>
+            ) : null}
           </div>
         ) : (
           <p className="muted">Only match players can submit or confirm result reports.</p>
@@ -942,38 +1051,116 @@ export function MatchRoom({ matchId }: { matchId: string }) {
         ) : null}
       </section>
 
-      {evidence.length > 0 ? (
+      {showEvidenceReview ? (
         <section className="card">
-          <h2>Evidence</h2>
-          <div className="evidence-list">
-            {evidence.map((item) => (
-              <article className="evidence-row" key={item.id}>
-                <div>
-                  <strong>{item.file_name}</strong>
-                  <p className="muted">
-                    {matchEvidenceTypeLabels[item.evidence_type as MatchEvidenceType] ?? "Evidence"} from{" "}
-                    {getProfileName(profileMap, item.uploaded_by) ?? "Player"}
-                  </p>
-                  <p className="muted">
-                    Expires {formatDateTime(item.expires_at)}
-                    {item.retained_by_admin ? ", retained by admin" : ""}
-                  </p>
-                </div>
-                {evidenceUrls[item.id] ? (
-                  <a
-                    className="button secondary-button button-link"
-                    href={evidenceUrls[item.id]}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    View
-                  </a>
-                ) : (
-                  <span className="muted">No view link</span>
-                )}
-              </article>
-            ))}
+          <div className="section-heading">
+            <div>
+              <h2>Review Evidence</h2>
+              <p className="muted">
+                Evidence is only used for disputes or staff review. It is stored privately and shared only with match participants and staff.
+              </p>
+            </div>
+            {openDispute ? <span className="badge">Dispute Open</span> : canManageMatch ? <span className="badge">Staff Review</span> : null}
           </div>
+
+          {isParticipant ? (
+            ownReport ? (
+              <div className="result-panel">
+                <div className="form-grid">
+                  <label htmlFor="review-evidence-type">
+                    Evidence Type
+                    <select
+                      id="review-evidence-type"
+                      disabled={!canUploadEvidence}
+                      value={evidenceType}
+                      onChange={(event) => setEvidenceType(event.target.value as MatchEvidenceType)}
+                    >
+                      {evidenceTypes.map((type) => (
+                        <option key={type} value={type}>
+                          {matchEvidenceTypeLabels[type]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label htmlFor="review-evidence-files">
+                    Image Evidence
+                    <input
+                      accept="image/png,image/jpeg,image/webp"
+                      disabled={!canUploadEvidence}
+                      id="review-evidence-files"
+                      multiple
+                      type="file"
+                      onChange={(event) =>
+                        setEvidenceFiles(
+                          Array.from(event.target.files ?? []).slice(0, evidenceUploadsRemaining),
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+                <label className="wide-field" htmlFor="review-evidence-notes">
+                  Evidence Notes
+                  <textarea
+                    id="review-evidence-notes"
+                    disabled={!canUploadEvidence}
+                    maxLength={1000}
+                    rows={3}
+                    value={evidenceNotes}
+                    onChange={(event) => setEvidenceNotes(event.target.value)}
+                  />
+                </label>
+                <p className="muted">
+                  PNG, JPG/JPEG, or WEBP only. Max 5 MB each, 3 uploads per player report. You have {evidenceUploadsRemaining} upload{evidenceUploadsRemaining === 1 ? "" : "s"} remaining.
+                </p>
+                <div className="match-action-grid">
+                  <button
+                    className="button"
+                    disabled={!canUploadEvidence || evidenceFiles.length === 0 || savingAction === "upload-evidence"}
+                    type="button"
+                    onClick={uploadReviewEvidence}
+                  >
+                    {savingAction === "upload-evidence" ? "Uploading..." : "Upload Evidence"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="muted">Submit a winner report before uploading review evidence.</p>
+            )
+          ) : null}
+
+          {evidence.length > 0 ? (
+            <div className="evidence-list">
+              {evidence.map((item) => (
+                <article className="evidence-row" key={item.id}>
+                  <div>
+                    <strong>{item.file_name}</strong>
+                    <p className="muted">
+                      {matchEvidenceTypeLabels[item.evidence_type as MatchEvidenceType] ?? "Evidence"} from{" "}
+                      {getProfileName(profileMap, item.uploaded_by) ?? "Player"}
+                    </p>
+                    <p className="muted">
+                      Expires {formatDateTime(item.expires_at)}
+                      {item.retained_by_admin ? ", retained by admin" : ""}
+                    </p>
+                  </div>
+                  {evidenceUrls[item.id] ? (
+                    <a
+                      className="button secondary-button button-link"
+                      href={evidenceUrls[item.id]}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      View
+                    </a>
+                  ) : (
+                    <span className="muted">No view link</span>
+                  )}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">No review evidence has been uploaded.</p>
+          )}
         </section>
       ) : null}
 
@@ -981,62 +1168,49 @@ export function MatchRoom({ matchId }: { matchId: string }) {
         <section className="card">
           <div className="section-heading">
             <div>
-              <h2>Organizer Tools</h2>
-              <p className="muted">Staff can reset setup, reassign host, or mark the match created when helping players.</p>
+              <h2>Organizer Review</h2>
+              <p className="muted">
+                Staff can resolve disputes, require a replay, or mark no contest when player reports need review.
+              </p>
             </div>
-          </div>
-          <div className="match-action-grid">
-            <button
-              className="button secondary-button"
-              disabled={!match.player_one_id || savingAction === "assign-player-one"}
-              type="button"
-              onClick={() =>
-                match.player_one_id
-                  ? assignHost(match.player_one_id, "assign-player-one")
-                  : undefined
-              }
-            >
-              {savingAction === "assign-player-one"
-                ? "Assigning..."
-                : `Assign ${getProfileName(profileMap, match.player_one_id) ?? "Player A"} Host`}
-            </button>
-            <button
-              className="button secondary-button"
-              disabled={!match.player_two_id || savingAction === "assign-player-two"}
-              type="button"
-              onClick={() =>
-                match.player_two_id
-                  ? assignHost(match.player_two_id, "assign-player-two")
-                  : undefined
-              }
-            >
-              {savingAction === "assign-player-two"
-                ? "Assigning..."
-                : `Assign ${getProfileName(profileMap, match.player_two_id) ?? "Player B"} Host`}
-            </button>
-            <button
-              className="button danger-button"
-              disabled={savingAction === "reset"}
-              type="button"
-              onClick={resetMatchRoom}
-            >
-              {savingAction === "reset" ? "Resetting..." : "Reset Match Room"}
-            </button>
           </div>
 
           <div className="management-actions">
             <div>
-              <h3>Result Review</h3>
-              <p className="muted">
-                Staff can confirm a winner, require replay, or mark no contest when player reports need review.
-              </p>
+              <h3>Player Reports</h3>
               {openDispute ? (
                 <p className="error">{openDispute.reason}</p>
               ) : reportsMismatch ? (
                 <p className="muted">Reports mismatch, but both players have not confirmed different winners yet.</p>
-              ) : null}
+              ) : bothReportsSubmitted ? (
+                <p className="muted">Reports currently align or have already finalized.</p>
+              ) : (
+                <p className="muted">Waiting for both player reports.</p>
+              )}
             </div>
           </div>
+          <dl className="meta-grid">
+            <div>
+              <dt>{playerOneName}</dt>
+              <dd>
+                {playerOneReport
+                  ? `${getReportedWinnerName(playerOneReport, profileMap) ?? "Player"}; ${getReportConfirmationLabel(playerOneReport)}`
+                  : "No report"}
+              </dd>
+            </div>
+            <div>
+              <dt>{playerTwoName}</dt>
+              <dd>
+                {playerTwoReport
+                  ? `${getReportedWinnerName(playerTwoReport, profileMap) ?? "Player"}; ${getReportConfirmationLabel(playerTwoReport)}`
+                  : "No report"}
+              </dd>
+            </div>
+            <div>
+              <dt>Raw Status</dt>
+              <dd className="mono-text">{match.status}</dd>
+            </div>
+          </dl>
 
           <div className="form-grid">
             <label htmlFor="resolution-action">
@@ -1094,6 +1268,51 @@ export function MatchRoom({ matchId }: { matchId: string }) {
               {savingAction === "resolve" ? "Resolving..." : "Resolve Match"}
             </button>
           </div>
+
+          <details className="advanced-controls">
+            <summary>Advanced organizer controls</summary>
+            <p className="muted">
+              Use these only when helping players recover match setup or correcting host assignment.
+            </p>
+            <div className="match-action-grid">
+              <button
+                className="button secondary-button"
+                disabled={!match.player_one_id || matchPastSetup || savingAction === "assign-player-one"}
+                type="button"
+                onClick={() =>
+                  match.player_one_id
+                    ? assignHost(match.player_one_id, "assign-player-one")
+                    : undefined
+                }
+              >
+                {savingAction === "assign-player-one"
+                  ? "Assigning..."
+                  : `Assign ${getProfileName(profileMap, match.player_one_id) ?? "Player A"} Host`}
+              </button>
+              <button
+                className="button secondary-button"
+                disabled={!match.player_two_id || matchPastSetup || savingAction === "assign-player-two"}
+                type="button"
+                onClick={() =>
+                  match.player_two_id
+                    ? assignHost(match.player_two_id, "assign-player-two")
+                    : undefined
+                }
+              >
+                {savingAction === "assign-player-two"
+                  ? "Assigning..."
+                  : `Assign ${getProfileName(profileMap, match.player_two_id) ?? "Player B"} Host`}
+              </button>
+              <button
+                className="button danger-button"
+                disabled={savingAction === "reset"}
+                type="button"
+                onClick={resetMatchRoom}
+              >
+                {savingAction === "reset" ? "Resetting..." : "Reset Match Room"}
+              </button>
+            </div>
+          </details>
         </section>
       ) : null}
 

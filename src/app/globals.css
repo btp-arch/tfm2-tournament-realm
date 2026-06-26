@@ -61,6 +61,106 @@ textarea {
   text-decoration: underline;
 }
 
+.notification-menu {
+  position: relative;
+}
+
+.notification-menu summary {
+  display: flex;
+  gap: .4rem;
+  align-items: center;
+  color: #93c5fd;
+  cursor: pointer;
+  list-style: none;
+}
+
+.notification-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.notification-count {
+  min-width: 1.4rem;
+  border-radius: 999px;
+  padding: .05rem .35rem;
+  background: #dc2626;
+  color: #fff;
+  font-size: .75rem;
+  text-align: center;
+}
+
+.notification-popover {
+  position: absolute;
+  z-index: 10;
+  top: 2rem;
+  right: 0;
+  width: min(360px, calc(100vw - 2rem));
+  border: 1px solid #25304a;
+  border-radius: 8px;
+  padding: 1rem;
+  background: #10172a;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 35%);
+}
+
+.notification-list {
+  display: grid;
+  gap: .75rem;
+  margin: .75rem 0;
+}
+
+.notification-item,
+.notification-row {
+  display: grid;
+  gap: .25rem;
+  border-top: 1px solid #25304a;
+  padding-top: .75rem;
+  color: #f8fafc;
+}
+
+.notification-item:hover {
+  text-decoration: none;
+}
+
+.notification-item.unread,
+.notification-row.unread {
+  border-color: #60a5fa;
+}
+
+.notification-item span,
+.notification-row p {
+  margin: 0;
+}
+
+.notification-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: flex-start;
+}
+
+.notification-row h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.active-action-banner {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #25304a;
+  padding: .9rem 2rem;
+  background: #172033;
+}
+
+.active-action-banner p {
+  margin: .25rem 0 0;
+  color: #cbd5e1;
+}
+
+.active-action-links {
+  display: flex;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+
 .card {
   border: 1px solid #25304a;
   border-radius: 8px;
@@ -205,6 +305,10 @@ textarea {
   align-items: flex-start;
   justify-content: space-between;
   flex-wrap: wrap;
+}
+
+.compact-heading {
+  align-items: center;
 }
 
 .search-row {
@@ -408,6 +512,23 @@ textarea {
   margin-top: 1rem;
 }
 
+.primary-actions {
+  border-top: 1px solid #25304a;
+  padding-top: 1rem;
+}
+
+.advanced-controls {
+  border-top: 1px solid #25304a;
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.advanced-controls summary {
+  color: #dbeafe;
+  cursor: pointer;
+  font-weight: 700;
+}
+
 .instruction-list,
 .timeline-list,
 .evidence-list {
@@ -471,6 +592,25 @@ textarea {
 
   .nav-spacer {
     display: none;
+  }
+
+  .notification-popover {
+    left: 0;
+    right: auto;
+  }
+
+  .active-action-banner,
+  .notification-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .active-action-banner {
+    padding: 1rem;
+  }
+
+  .notification-row {
+    grid-template-columns: 1fr;
   }
 
   .profile-layout {

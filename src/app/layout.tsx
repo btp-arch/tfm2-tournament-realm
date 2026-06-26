@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ActiveActionBanner } from "@/components/active-action-banner";
 import { SiteNav } from "@/components/site-nav";
 
 export const metadata: Metadata = {
@@ -12,6 +13,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en">
       <body>
         <SiteNav />
+        <ActiveActionBanner />
         <main className="container">{children}</main>
       </body>
     </html>

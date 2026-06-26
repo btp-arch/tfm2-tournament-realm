@@ -676,6 +676,77 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          body: string
+          created_at: string
+          dedupe_key: string | null
+          id: string
+          link_url: string | null
+          read_at: string | null
+          related_match_id: string | null
+          related_tournament_id: string | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          body?: string
+          created_at?: string
+          dedupe_key?: string | null
+          id?: string
+          link_url?: string | null
+          read_at?: string | null
+          related_match_id?: string | null
+          related_tournament_id?: string | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          dedupe_key?: string | null
+          id?: string
+          link_url?: string | null
+          read_at?: string | null
+          related_match_id?: string | null
+          related_tournament_id?: string | null
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_related_match_id_fkey"
+            columns: ["related_match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_related_tournament_id_fkey"
+            columns: ["related_tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organizer_feedback: {
         Row: {
           comments: string | null
@@ -1496,6 +1567,19 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      insert_notification_once: {
+        Args: {
+          match_id: string
+          notification_body: string
+          notification_dedupe_key: string
+          notification_link: string
+          notification_title: string
+          notification_type: string
+          target_user: string
+          tournament_id: string
+        }
+        Returns: undefined
+      }
       is_admin: { Args: never; Returns: boolean }
       is_match_participant: { Args: { match: string }; Returns: boolean }
       is_organizer_for: { Args: { tournament: string }; Returns: boolean }
@@ -1507,6 +1591,7 @@ export type Database = {
         Args: { player: string; tournament: string }
         Returns: boolean
       }
+      mark_all_notifications_read: { Args: never; Returns: number }
       mark_match_game_created: {
         Args: { target_match: string }
         Returns: {

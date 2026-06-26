@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
+import { NotificationMenu } from "@/components/notification-menu";
 
 const links = [
   ["Home", "/"],
@@ -101,6 +102,7 @@ export function SiteNav() {
       <span className="nav-spacer" />
       {!isLoading && user ? (
         <>
+          <NotificationMenu user={user} />
           <Link href="/profile">Profile</Link>
           <button className="nav-button" type="button" onClick={handleSignOut}>
             Sign Out
