@@ -1175,6 +1175,7 @@ export type Database = {
           name: string
           registration_closes_at: string | null
           rules: string | null
+          show_on_calendar: boolean
           slug: string
           starts_at: string | null
           status: Database["public"]["Enums"]["tournament_status"]
@@ -1192,6 +1193,7 @@ export type Database = {
           name: string
           registration_closes_at?: string | null
           rules?: string | null
+          show_on_calendar?: boolean
           slug: string
           starts_at?: string | null
           status?: Database["public"]["Enums"]["tournament_status"]
@@ -1209,6 +1211,7 @@ export type Database = {
           name?: string
           registration_closes_at?: string | null
           rules?: string | null
+          show_on_calendar?: boolean
           slug?: string
           starts_at?: string | null
           status?: Database["public"]["Enums"]["tournament_status"]
@@ -1760,6 +1763,33 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "matches"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      set_tournament_calendar_visibility: {
+        Args: { target_tournament: string; visible: boolean }
+        Returns: {
+          created_at: string
+          created_by: string
+          description: string | null
+          external_community_url: string | null
+          format: Database["public"]["Enums"]["match_format"]
+          id: string
+          max_players: number | null
+          name: string
+          registration_closes_at: string | null
+          rules: string | null
+          show_on_calendar: boolean
+          slug: string
+          starts_at: string | null
+          status: Database["public"]["Enums"]["tournament_status"]
+          tournament_format: Database["public"]["Enums"]["tournament_format"]
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "tournaments"
           isOneToOne: true
           isSetofReturn: false
         }

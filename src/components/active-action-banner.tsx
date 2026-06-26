@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
+import { getCurrentUserRoles } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
 import {
   liveRefreshIntervalMs,
@@ -13,7 +13,6 @@ import {
 export function ActiveActionBanner() {
   const [supabase] = useState(() => createClient());
   const [action, setAction] = useState<ActiveAction | null>(null);
-  const [roles, setRoles] = useState<RoleState>(emptyRoleState);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const loadAction = useCallback(async () => {
@@ -21,7 +20,6 @@ export function ActiveActionBanner() {
 
     if (!data.user) {
       setAction(null);
-      setRoles(emptyRoleState);
       setIsLoaded(true);
       return;
     }
@@ -29,7 +27,6 @@ export function ActiveActionBanner() {
     try {
       const loadedRoles = await getCurrentUserRoles(supabase);
       const loadedAction = await loadActiveAction(supabase, data.user.id, loadedRoles);
-      setRoles(loadedRoles);
       setAction(loadedAction);
     } catch {
       setAction(null);
@@ -77,11 +74,6 @@ export function ActiveActionBanner() {
         <Link className="button secondary-button button-link" href="/notifications">
           Notifications
         </Link>
-        {roles.isOrganizer ? (
-          <Link className="button secondary-button button-link" href="/organizer">
-            Organizer
-          </Link>
-        ) : null}
       </div>
     </aside>
   );

@@ -127,7 +127,18 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - Admins can close registration by setting status to `registration_closed`, and can reopen registration by setting status to `registration_open` only when the registration close time is in the future.
 - `/organizer` groups managed tournaments by status and links to manage/edit.
 - `/organizer` flags tournaments with result reports or disputes needing review.
-- `/admin` lists all tournaments with organizer, status, and registered participant count.
+- `/admin` lists all tournaments with organizer, status, registered participant count, and dashboard calendar visibility.
+- Admins control public dashboard calendar visibility from `/admin` tournament management. The dashboard reads only tournaments with `show_on_calendar = true`; organizers can still create and manage tournaments, but calendar placement is an admin decision.
+
+### Player dashboard and calendar
+
+- `/` is a player-facing dashboard, not an organizer/admin control panel.
+- The site-wide active action banner remains near the top of the app and links signed-in users to their highest-priority tournament or match action.
+- The dashboard calendar shows 7 local-date columns: yesterday, today, and the next five days.
+- Calendar cards show scheduled start time, tournament name, status, registered/max players, and winner information for completed tournaments when a finalized winner can be derived from the bracket.
+- Signed-in users also see `My Events`, which lists their registered tournaments and active match rooms without admin/organizer controls.
+- Signed-out users see the public calendar plus a compact getting-started checklist.
+- `Recent Winners` lists recently completed calendar-visible tournaments. Winner names are derived from the highest-round completed match with a winner, so older completed tournaments without finalized match data may show the winner as pending.
 
 ### Results, evidence, and disputes
 
@@ -256,6 +267,19 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 9. Confirm different reports from both players and verify dispute notifications plus organizer/admin active review banner.
 10. Resolve the dispute and confirm dispute resolved and player advanced notifications.
 11. Open `/notifications`, mark one item read, then mark all read and confirm the nav unread count updates.
+
+### Manual dashboard calendar smoke test
+
+1. Apply migrations and regenerate types for your target environment.
+2. Start the app with `npm run dev`.
+3. Open `/` while signed out and confirm the 7-day calendar displays yesterday, today, and the next five days.
+4. Confirm only tournaments marked calendar-visible in `/admin` appear on the dashboard calendar.
+5. Sign in as a player and confirm `My Events` shows player registrations and match rooms without organizer/admin controls.
+6. Sign in as an admin and confirm `/` remains player-facing.
+7. Open `/admin`, toggle a tournament with a start date inside the 7-day window to `Show On Calendar`, and confirm it appears on `/`.
+8. Toggle the same tournament to hidden and confirm it disappears from `/`.
+9. Inspect a completed visible tournament with a finalized winner and confirm `Recent Winners` shows the winner line.
+10. Confirm the nav notification bell and site-wide active action banner still work.
 
 ## First admin bootstrap
 

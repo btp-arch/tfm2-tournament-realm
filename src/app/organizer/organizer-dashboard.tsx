@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { AccessDenied } from "@/components/access-denied";
+import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from "@/components/ui";
 import { formatError, logError } from "@/lib/errors";
 import { ensureProfile, type Profile } from "@/lib/profiles";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
@@ -205,11 +206,11 @@ export function OrganizerDashboard() {
   }, [loadManagedTournaments, loadRegistrationCounts, loadReviewCounts, router, supabase]);
 
   if (isLoading) {
-    return <p className="muted">Loading organizer dashboard...</p>;
+    return <LoadingState message="Loading organizer dashboard..." />;
   }
 
   if (error) {
-    return <p className="error">{error}</p>;
+    return <ErrorState message={error} />;
   }
 
   if (!user || !profile || !roles.isOrganizer) {
@@ -220,11 +221,18 @@ export function OrganizerDashboard() {
 
   return (
     <>
-      <h1>Organizer Dashboard</h1>
-      <p className="muted">Signed in as {profile.display_name}.</p>
-      {lastUpdatedAt ? (
-        <p className="muted">Last updated {lastUpdatedAt.toLocaleTimeString()}.</p>
-      ) : null}
+      <PageHeader
+        eyebrow="Organizer tools"
+        title="Organizer Dashboard"
+        description={`Signed in as ${profile.display_name}${
+          lastUpdatedAt ? `. Last updated ${lastUpdatedAt.toLocaleTimeString()}` : ""
+        }.`}
+        action={
+          <Link className="button button-link" href="/tournaments/create">
+            Create Tournament
+          </Link>
+        }
+      />
 
       <section className="grid">
         <div className="card">
@@ -237,12 +245,9 @@ export function OrganizerDashboard() {
         </div>
 
         <div className="card">
-          <h2>Create Tournament</h2>
-          <p className="muted">Set up a free-entry tournament and open registration.</p>
-          <Link className="button button-link" href="/tournaments/create">
-            Create Tournament
-          </Link>
-        </div>
+            <h2>Create Tournament</h2>
+            <p className="muted">Set up a free-entry tournament and open registration.</p>
+          </div>
       </section>
 
       <section className="card">
@@ -255,14 +260,17 @@ export function OrganizerDashboard() {
         </div>
 
         {tournaments.length === 0 ? (
-          <p className="muted">No tournaments created yet.</p>
+          <EmptyState
+            message="Created or assigned tournaments will appear here."
+            title="No tournaments created yet"
+          />
         ) : (
           <div className="tournament-management-list">
             {tournamentsByStatus.map((group: { status: TournamentStatus; tournaments: TournamentRow[] }) => (
               <section className="status-group" key={group.status}>
                 <div className="section-heading">
                   <h3>{tournamentStatusLabels[group.status]}</h3>
-                  <span className="badge">{group.tournaments.length}</span>
+                  <StatusBadge status={group.status} />
                 </div>
                 {group.tournaments.map((tournament) => {
                   const count = registrationCounts[tournament.id] ?? 0;

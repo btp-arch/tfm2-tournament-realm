@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import { ErrorState, LoadingState, MatchStatusBadge } from "@/components/ui";
 import { formatError, logError } from "@/lib/errors";
 import {
   describeCheckInStatus,
@@ -706,11 +707,11 @@ export function MatchRoom({ matchId }: { matchId: string }) {
   }
 
   if (isLoading) {
-    return <p className="muted">Loading match room...</p>;
+    return <LoadingState message="Loading match room..." />;
   }
 
   if (error && !match) {
-    return <p className="error">{error}</p>;
+    return <ErrorState message={error} />;
   }
 
   if (!match || !tournament) {
@@ -730,7 +731,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
       <>
         <div className="section-heading">
           <div>
-            <span className="badge">{matchStatusLabels[match.status]}</span>
+            <MatchStatusBadge>{matchStatusLabels[match.status]}</MatchStatusBadge>
             <h1>{getMatchLabel(match)}</h1>
             <p className="muted">
               <Link href={`/tournaments/${tournament.id}`}>{tournament.name}</Link>
@@ -787,7 +788,17 @@ export function MatchRoom({ matchId }: { matchId: string }) {
     <>
       <div className="section-heading">
         <div>
-          <span className="badge">{matchStatusLabels[match.status]}</span>
+          <MatchStatusBadge
+            tone={
+              match.status === "disputed" || match.status === "needs_admin"
+                ? "danger"
+                : match.status === "finalized" || match.status === "confirmed"
+                  ? "gold"
+                  : "action"
+            }
+          >
+            {matchStatusLabels[match.status]}
+          </MatchStatusBadge>
           <h1>{getMatchLabel(match)}</h1>
           <p className="muted">
             <Link href={`/tournaments/${tournament.id}`}>{tournament.name}</Link>

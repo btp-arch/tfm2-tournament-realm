@@ -1,15 +1,17 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PageHeader,
+  TournamentCard,
+} from "@/components/ui";
 import { formatError, logError } from "@/lib/errors";
 import { createClient } from "@/lib/supabase/client";
 import {
-  formatDateTime,
-  matchFormatLabels,
   publicTournamentStatuses,
-  tournamentFormatLabels,
-  tournamentStatusLabels,
   type TournamentRow,
 } from "@/lib/tournaments";
 
@@ -102,75 +104,40 @@ export function TournamentsList() {
   }, [supabase]);
 
   if (isLoading) {
-    return <p className="muted">Loading tournaments...</p>;
+    return <LoadingState message="Loading tournaments..." />;
   }
 
   if (error) {
-    return <p className="error">{error}</p>;
+    return <ErrorState message={error} />;
   }
 
   return (
     <>
-      <div className="section-heading">
-        <div>
-          <h1>Tournaments</h1>
-          <p className="muted">Upcoming free-entry Teamfight Manager 2 community tournaments.</p>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Free-entry events"
+        title="Tournaments"
+        description="Upcoming Teamfight Manager 2 community tournaments."
+      />
 
       {tournaments.length === 0 ? (
         <section className="card">
-          <h2>No Upcoming Tournaments</h2>
-          <p className="muted">Registration-open tournaments will appear here after organizers publish them.</p>
+          <EmptyState
+            message="Registration-open tournaments will appear here after organizers publish them."
+            title="No upcoming tournaments"
+          />
         </section>
       ) : (
         <section className="tournament-list" aria-label="Upcoming tournaments">
           {tournaments.map((tournament) => {
             const registrationCount = registrationCounts[tournament.id] ?? 0;
-            const capacity = tournament.max_players
-              ? `${registrationCount}/${tournament.max_players}`
-              : `${registrationCount}`;
 
             return (
-              <article className="card tournament-card" key={tournament.id}>
-                <div className="section-heading">
-                  <div>
-                    <h2>
-                      <Link href={`/tournaments/${tournament.id}`}>{tournament.name}</Link>
-                    </h2>
-                    <p className="muted">{formatDateTime(tournament.starts_at)}</p>
-                  </div>
-                  <span className="badge">{tournamentStatusLabels[tournament.status]}</span>
-                </div>
-
-                {tournament.status === "cancelled" ? (
-                  <p className="error">This tournament has been cancelled.</p>
-                ) : null}
-                {tournament.description ? <p>{tournament.description}</p> : null}
-
-                <dl className="meta-grid">
-                  <div>
-                    <dt>Format</dt>
-                    <dd>{tournamentFormatLabels[tournament.tournament_format]}</dd>
-                  </div>
-                  <div>
-                    <dt>Matches</dt>
-                    <dd>{matchFormatLabels[tournament.format]}</dd>
-                  </div>
-                  <div>
-                    <dt>Players</dt>
-                    <dd>{capacity}</dd>
-                  </div>
-                  <div>
-                    <dt>Registration Closes</dt>
-                    <dd>{formatDateTime(tournament.registration_closes_at)}</dd>
-                  </div>
-                </dl>
-
-                <Link className="button button-link" href={`/tournaments/${tournament.id}`}>
-                  View Tournament
-                </Link>
-              </article>
+              <TournamentCard
+                key={tournament.id}
+                note={tournament.description ?? undefined}
+                registrationCount={registrationCount}
+                tournament={tournament}
+              />
             );
           })}
         </section>

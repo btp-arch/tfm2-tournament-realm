@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import { EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { formatError, logError } from "@/lib/errors";
 import { formatDateTime } from "@/lib/tournaments";
 import { liveRefreshIntervalMs, type NotificationRow } from "@/lib/notifications";
@@ -86,7 +87,7 @@ export function NotificationsList() {
   }
 
   if (isLoading) {
-    return <p className="muted">Loading notifications...</p>;
+    return <LoadingState message="Loading notifications..." />;
   }
 
   if (!user) {
@@ -103,21 +104,22 @@ export function NotificationsList() {
 
   return (
     <>
-      <div className="section-heading">
-        <div>
-          <h1>Notifications</h1>
-          <p className="muted">Recent tournament and match updates for your account.</p>
-        </div>
-        <button className="button secondary-button" type="button" onClick={markAllRead}>
-          Mark All Read
-        </button>
-      </div>
+      <PageHeader
+        eyebrow="Live updates"
+        title="Notifications"
+        description="Recent tournament and match updates for your account."
+        action={
+          <button className="button secondary-button" type="button" onClick={markAllRead}>
+            Mark All Read
+          </button>
+        }
+      />
 
-      {error ? <p className="error">{error}</p> : null}
+      {error ? <ErrorState message={error} /> : null}
 
       <section className="card">
         {notifications.length === 0 ? (
-          <p className="muted">No notifications yet.</p>
+          <EmptyState message="Tournament and match notifications will appear here." title="No notifications yet" />
         ) : (
           <div className="notification-list full-list">
             {notifications.map((notification) => (

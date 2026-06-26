@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
+import { ErrorState, LoadingState, MatchStatusBadge, StatusBadge } from "@/components/ui";
 import {
   bracketSizes,
   generateSingleEliminationMatches,
@@ -1207,11 +1208,11 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   }
 
   if (isLoading) {
-    return <p className="muted">Loading tournament...</p>;
+    return <LoadingState message="Loading tournament..." />;
   }
 
   if (error && !tournament) {
-    return <p className="error">{error}</p>;
+    return <ErrorState message={error} />;
   }
 
   if (!tournament) {
@@ -1232,7 +1233,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     <>
       <div className="section-heading">
         <div>
-          <span className="badge">{tournamentStatusLabels[tournament.status]}</span>
+          <StatusBadge status={tournament.status} />
           <h1>{tournament.name}</h1>
           <p className="muted">Organized by {organizer?.display_name ?? "Tournament staff"}</p>
           {lastUpdatedAt ? (
@@ -1468,7 +1469,17 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                         </div>
                         <div className="role-actions">
                           <span className="badge">{matchFormatLabels[match.format]}</span>
-                          <span className="badge">{matchStatusLabels[match.status]}</span>
+                          <MatchStatusBadge
+                            tone={
+                              match.status === "disputed" || match.status === "needs_admin"
+                                ? "danger"
+                                : match.status === "finalized" || match.status === "confirmed"
+                                  ? "gold"
+                                  : "muted"
+                            }
+                          >
+                            {matchStatusLabels[match.status]}
+                          </MatchStatusBadge>
                           {shouldLinkMatch ? (
                             <Link
                               className="button secondary-button button-link"
@@ -1548,6 +1559,20 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                   {savingAction === "status" ? "Saving..." : "Save Status"}
                 </button>
               </div>
+            </div>
+          ) : null}
+
+          {roles.isAdmin ? (
+            <div className="management-actions">
+              <div>
+                <h3>Dashboard Calendar</h3>
+                <p className="muted">
+                  Public dashboard visibility is controlled from Admin Dashboard tournament management.
+                </p>
+              </div>
+              <MatchStatusBadge tone={tournament.show_on_calendar ? "gold" : "muted"}>
+                {tournament.show_on_calendar ? "Calendar Visible" : "Calendar Hidden"}
+              </MatchStatusBadge>
             </div>
           ) : null}
 

@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { AccessDenied } from "@/components/access-denied";
+import { EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
 import { formatError, logError } from "@/lib/errors";
 import { ensureProfile, profileSelect, type Profile } from "@/lib/profiles";
 import {
@@ -309,16 +310,41 @@ export function AdminRoleManager() {
     setIsSaving(false);
   }
 
+  async function updateCalendarVisibility(tournamentId: string, visible: boolean) {
+    setIsSaving(true);
+    setNotice(null);
+    setError(null);
+
+    const { error: visibilityError } = await supabase.rpc(
+      "set_tournament_calendar_visibility",
+      {
+        target_tournament: tournamentId,
+        visible,
+      },
+    );
+
+    if (visibilityError) {
+      logError("Calendar visibility update failed.", visibilityError);
+      setError(formatError(visibilityError, "Unable to update calendar visibility."));
+      setIsSaving(false);
+      return;
+    }
+
+    await loadTournamentManagementData();
+    setNotice(visible ? "Tournament added to the dashboard calendar." : "Tournament hidden from the dashboard calendar.");
+    setIsSaving(false);
+  }
+
   function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
   }
 
   if (isLoading) {
-    return <p className="muted">Loading admin dashboard...</p>;
+    return <LoadingState message="Loading admin dashboard..." />;
   }
 
   if (error && !profile) {
-    return <p className="error">{error}</p>;
+    return <ErrorState message={error} />;
   }
 
   if (!user || !profile || !roles.isAdmin) {
@@ -327,8 +353,11 @@ export function AdminRoleManager() {
 
   return (
     <>
-      <h1>Admin Dashboard</h1>
-      <p className="muted">Signed in as {profile.display_name}.</p>
+      <PageHeader
+        eyebrow="Platform controls"
+        title="Admin Dashboard"
+        description={`Signed in as ${profile.display_name}.`}
+      />
 
       <section className="grid">
         <div className="card">
@@ -364,7 +393,10 @@ export function AdminRoleManager() {
         </div>
 
         {tournaments.length === 0 ? (
-          <p className="muted">No tournaments created yet.</p>
+          <EmptyState
+            message="Created tournaments will appear here for admin review and calendar visibility control."
+            title="No tournaments created yet"
+          />
         ) : (
           <div className="tournament-management-list">
             {tournaments.map((tournament) => {
@@ -385,9 +417,22 @@ export function AdminRoleManager() {
                         {count}
                         {capacity} registered
                       </span>
+                      <span className={tournament.show_on_calendar ? "badge status-badge status-badge-gold" : "badge status-badge status-badge-muted"}>
+                        {tournament.show_on_calendar ? "Calendar Visible" : "Calendar Hidden"}
+                      </span>
                     </div>
                   </div>
                   <div className="role-actions">
+                    <button
+                      className="button secondary-button"
+                      disabled={isSaving}
+                      type="button"
+                      onClick={() =>
+                        updateCalendarVisibility(tournament.id, !tournament.show_on_calendar)
+                      }
+                    >
+                      {tournament.show_on_calendar ? "Hide From Calendar" : "Show On Calendar"}
+                    </button>
                     <Link className="button secondary-button button-link" href={`/tournaments/${tournament.id}`}>
                       Manage
                     </Link>
