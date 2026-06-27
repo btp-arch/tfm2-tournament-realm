@@ -10,6 +10,11 @@ export type BracketPlayer = {
   seed: number;
 };
 
+export type ManualSeedRegistration = {
+  manualSeed: number | null;
+  userId: string;
+};
+
 export type GeneratedMatch = {
   roundNumber: number;
   matchNumber: number;
@@ -130,6 +135,32 @@ export function getBracketSetupWarning(
   return null;
 }
 
+export function validateManualSeed(seed: number | null, maxSeed = 8) {
+  if (seed === null) {
+    return null;
+  }
+
+  if (!Number.isInteger(seed) || seed < 1 || seed > 8) {
+    return "Manual seeds must be empty or between 1 and 8.";
+  }
+
+  if (seed > maxSeed) {
+    return `Seed ${seed} is not available for this ${maxSeed}-player bracket.`;
+  }
+
+  return null;
+}
+
+export function getSeededRegistrations<T extends ManualSeedRegistration>(registrations: T[]) {
+  return registrations
+    .filter((registration) => registration.manualSeed !== null)
+    .sort((first, second) => (first.manualSeed ?? 0) - (second.manualSeed ?? 0));
+}
+
+export function getUnseededRegistrations<T extends ManualSeedRegistration>(registrations: T[]) {
+  return registrations.filter((registration) => registration.manualSeed === null);
+}
+
 export function getSeedOrder(size: number): number[] {
   if (size === 2) {
     return [1, 2];
@@ -143,6 +174,48 @@ export function getSeedOrder(size: number): number[] {
 
     return index % 2 === 0 ? [seed, pairedSeed] : [pairedSeed, seed];
   });
+}
+
+export function buildSeededSingleEliminationSlots<T extends ManualSeedRegistration>(
+  participants: T[],
+  bracketSize: BracketSize,
+  orderUnseededRegistrations: (registrations: T[]) => T[],
+): BracketPlayer[] {
+  const seededRegistrations = getSeededRegistrations(participants);
+  const manualSeeds = new Set<number>();
+
+  for (const participant of seededRegistrations) {
+    const validationError = validateManualSeed(participant.manualSeed, Math.min(8, bracketSize));
+
+    if (validationError) {
+      throw new Error(validationError);
+    }
+
+    if (participant.manualSeed !== null) {
+      if (manualSeeds.has(participant.manualSeed)) {
+        throw new Error(`Seed ${participant.manualSeed} is already assigned in this tournament.`);
+      }
+
+      manualSeeds.add(participant.manualSeed);
+    }
+  }
+
+  const openSeeds = Array.from({ length: bracketSize }, (_, index) => index + 1)
+    .filter((seed) => !manualSeeds.has(seed));
+  const orderedUnseededRegistrations = orderUnseededRegistrations(
+    getUnseededRegistrations(participants),
+  );
+
+  return [
+    ...seededRegistrations.map((participant) => ({
+      userId: participant.userId,
+      seed: participant.manualSeed as number,
+    })),
+    ...orderedUnseededRegistrations.map((participant, index) => ({
+      userId: participant.userId,
+      seed: openSeeds[index] ?? bracketSize,
+    })),
+  ];
 }
 
 export function generateSingleEliminationMatches(

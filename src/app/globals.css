@@ -865,6 +865,8 @@ textarea {
 }
 
 .compact-list {
+  display: flex;
+  flex-wrap: wrap;
   gap: .45rem;
 }
 

@@ -1,4 +1,4 @@
-# Next Milestone Checklist: Group Stage Hardening / Group UI Polish / Tiebreaker Review
+# Next Milestone Checklist: Group Stage Hardening and Organizer Live Controls
 
 ## Group Stage Hardening
 
@@ -27,6 +27,13 @@
 - [ ] Add a small read-only explainer for FF and record-counting rules if users ask.
 - [ ] Keep normal player views free of organizer/admin group controls.
 - [ ] Consider a playoff seed preview table if organizers ask for more visibility before generation.
+
+## Organizer Live Controls
+
+- [ ] Add safer live controls for correcting accidental group FF results before playoff generation.
+- [ ] Add clearer reset/recovery guidance for manual seed, group draw, and playoff handoff states.
+- [ ] Consider organizer-facing previews for seeded group draw and bracket placement before generation.
+- [ ] Keep manual seed edits locked after generated matches start unless a safe reset path is available.
 
 ## Profile/Records Follow-Up
 

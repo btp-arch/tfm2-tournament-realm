@@ -125,9 +125,14 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - Staff event-flow, bracket setup/reset, cancel, delete, and admin override controls live in the Organizer/Admin tab.
 - Normal organizer start requires status `check_in`, a generated bracket size that can hold the field, and at least 2 checked-in players.
 - Generating the bracket also starts the tournament by moving status to `active`.
+- Organizers/admins can assign optional manual tournament seeds 1 through 8 to active registrations before the bracket or group draw is generated. Only one player can hold a seed number per tournament.
+- Manual seeds are organizer-controlled tournament seeds only; they do not affect public player records directly and lock after a bracket/group draw exists. Resetting an unstarted draw unlocks editing again.
+- Single-elimination generation places manual seeds first using standard bracket seed slots, then random-fills remaining bracket slots from unseeded checked-in players. When no manual seeds are assigned, the existing selected seeding method still controls the full field. Seeds above the selected bracket size are blocked.
 - Group-stage playoff tournaments support 4-player or 8-player groups, top 1/top 2/top 3/top 4 qualifiers per group, and 4/8/16/32/64 player single-elimination playoff brackets.
 - Total configured qualifiers map to the smallest supported playoff bracket that can contain them. Extra playoff slots become playoff BYEs for the highest seeds.
 - Empty group slots are BYE/no-match off-slots. They do not create group matches, standings wins, public records, or game stats.
+- Group-stage generation places manual seeds before random draw. Seeds spread by snake pass across groups: for 4 groups, seeds 1/8 go to Group A, 2/7 to Group B, 3/6 to Group C, and 4/5 to Group D; for 2 groups, seeds balance as 1/4/5/8 and 2/3/6/7.
+- Unseeded checked-in players are shuffled, then distributed into the least-filled groups after seeded players are placed. When no manual seeds are assigned, the existing selected draw method still controls the draw order. Underfilled starts spread real players evenly where possible, such as 10 players across 4 groups becoming 3/3/2/2 real players before BYE/no-match slots fill the remaining capacity.
 - Organizer/Admin controls can generate the group draw, create all group round-robin match rooms, reset the draw before group matches start, mark group matches as FF, set manual qualifier overrides, and generate the playoff bracket after groups complete.
 - The Groups tab shows group members, compact standings, group matches, qualifier status, and tiebreaker-needed indicators. The Bracket tab shows the playoff bracket after generation.
 - Group standings sort by match wins, simple two-player head-to-head where available, game differential, and games won. Unresolved cutoff ties require organizer/admin qualifier override before playoff generation.
@@ -254,6 +259,15 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 11. Confirm the tournament moves to `active` and the detail page shows rounds, match numbers, player slots, BYE/TBD placeholders, round match formats, and match statuses.
 12. Confirm a normal player can view the bracket but cannot see generate/reset controls.
 13. Before match events or reports exist, reset the bracket and confirm the tournament returns to `check_in`.
+
+### Manual registration seed smoke test
+
+1. Create a single-elimination test tournament, register/check in several players, and assign seeds 1, 2, 3, and 4 from the Players tab as organizer/admin.
+2. Confirm duplicate seed selections are blocked and normal players cannot see seed management controls.
+3. Generate the bracket and confirm seeded players occupy their bracket seed slots before unseeded checked-in players fill the remaining slots.
+4. Create a group-stage test tournament with 4 groups of 4, register/check in fewer than full capacity if possible, and assign seeds 1 through 8 when enough players exist.
+5. Generate the group draw and confirm seeds are spread as Group A 1/8, Group B 2/7, Group C 3/6, and Group D 4/5, with unseeded players distributed across the least-filled groups.
+6. Confirm BYE/no-match slots fill remaining group capacity, do not appear in standings, and do not create group matches.
 
 ### Manual match-room smoke test
 

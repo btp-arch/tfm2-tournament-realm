@@ -13,6 +13,7 @@ import {
   TournamentTierBadge,
 } from "@/components/ui";
 import {
+  buildSeededSingleEliminationSlots,
   generateSingleEliminationMatches,
   getBracketSetupWarning,
   getDefaultRoundFormats,
@@ -21,13 +22,16 @@ import {
   isBracketSize,
   seedingMethodLabels,
   seedingMethods,
+  validateManualSeed,
   type BracketSize,
   type SeedingMethod,
 } from "@/lib/brackets";
 import { formatError, logError } from "@/lib/errors";
 import {
   areGroupMatchesComplete,
+  buildSeededGroupAssignments,
   calculateGroupStandings,
+  explainGroupSeedPlacement,
   getGroupStageFormatSummary,
   getGroupLabel,
   getPlayoffByeCount,
@@ -88,6 +92,7 @@ type Participant = {
   registrationStatus: TournamentRegistrationRow["status"];
   registeredAt: string;
   checkIn: TournamentCheckInRow | null;
+  manualSeed: number | null;
 };
 
 type SavingAction =
@@ -101,6 +106,7 @@ type SavingAction =
   | "check-in"
   | "manual-check-in"
   | "manual-uncheck"
+  | "manual-seed"
   | "generate"
   | "generate-groups"
   | "reset-groups"
@@ -208,24 +214,6 @@ function createRoundRobinPairings(members: TournamentGroupMemberRow[]) {
   }
 
   return pairings;
-}
-
-function getGroupDrawParticipant(
-  participants: Participant[],
-  groupIndex: number,
-  slotIndex: number,
-  groupsCount: number,
-) {
-  const activeGroupCount =
-    participants.length < groupsCount * 2
-      ? Math.max(1, Math.min(groupsCount, Math.floor(participants.length / 2)))
-      : groupsCount;
-
-  if (groupIndex >= activeGroupCount) {
-    return null;
-  }
-
-  return participants[slotIndex * activeGroupCount + groupIndex] ?? null;
 }
 
 function isEligibleParticipant(participant: Participant) {
@@ -796,6 +784,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         registrationStatus: row.status,
         registeredAt: row.created_at,
         checkIn: checkIns.find((checkIn) => checkIn.user_id === row.user_id) ?? null,
+        manualSeed: row.manual_seed,
       }));
 
       setUser(currentUser);
@@ -907,6 +896,28 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const hasGroupDraw = groupsWithMembers.length > 0;
   const hasPlayoffBracket = Boolean(playoffStage);
   const hasGeneratedBracket = isGroupStageTournament ? hasGroupDraw : stages.length > 0;
+  const canEditManualSeeds = Boolean(canManageTournament && !hasGeneratedBracket);
+  const maxManualSeedForTournament = isGroupStageTournament ? 8 : Math.min(8, selectedBracketSize);
+  const assignedManualSeeds = useMemo(() => {
+    return participants.reduce<Map<number, Participant>>((seedsByNumber, participant) => {
+      if (isEligibleParticipant(participant) && participant.manualSeed !== null) {
+        seedsByNumber.set(participant.manualSeed, participant);
+      }
+
+      return seedsByNumber;
+    }, new Map());
+  }, [participants]);
+  const manualSeedOptions = Array.from(
+    { length: maxManualSeedForTournament },
+    (_, index) => index + 1,
+  );
+  const participantsByUserId = useMemo(() => {
+    return participants.reduce<Map<string, Participant>>((participantsById, participant) => {
+      participantsById.set(participant.userId, participant);
+
+      return participantsById;
+    }, new Map());
+  }, [participants]);
   const requiredGroupPlayerCount =
     (tournament?.group_size ?? 0) * (tournament?.groups_count ?? 0);
   const totalGroupQualifiers =
@@ -1198,6 +1209,53 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     }
   }
 
+  async function setTournamentRegistrationSeed(participant: Participant, manualSeed: number | null) {
+    if (!tournament || !canEditManualSeeds) {
+      return;
+    }
+
+    const validationError = validateManualSeed(manualSeed, maxManualSeedForTournament);
+
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    const assignedParticipant = manualSeed !== null ? assignedManualSeeds.get(manualSeed) : null;
+
+    if (assignedParticipant && assignedParticipant.registrationId !== participant.registrationId) {
+      setError(`Seed ${manualSeed} is already assigned to ${assignedParticipant.displayName}.`);
+      return;
+    }
+
+    setSavingAction("manual-seed");
+    setNotice(null);
+    setError(null);
+
+    try {
+      const { error: rpcError } = await supabase.rpc("set_tournament_registration_seed", {
+        seed_value: manualSeed,
+        target_registration: participant.registrationId,
+      });
+
+      if (rpcError) {
+        throw rpcError;
+      }
+
+      setNotice(
+        manualSeed === null
+          ? `${participant.displayName}'s seed cleared.`
+          : `${participant.displayName} assigned seed ${manualSeed}.`,
+      );
+      await loadTournament();
+    } catch (caughtError) {
+      logError("Manual seed update failed.", caughtError);
+      setError(formatError(caughtError, "Unable to update manual seed."));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
   async function createBracketFromParticipants(
     participantsToSeed: Participant[],
     action: ActiveSavingAction,
@@ -1231,14 +1289,15 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     let createdStageId: string | null = null;
 
     try {
-      const seededPlayers = orderParticipantsForSeeding(
+      const hasManualSeeds = participantsToSeed.some((participant) => participant.manualSeed !== null);
+      const seededPlayers = buildSeededSingleEliminationSlots(
         participantsToSeed,
-        selectedSeedingMethod,
-      )
-        .map((participant, index) => ({
-          userId: participant.userId,
-          seed: index + 1,
-        }));
+        selectedBracketSize,
+        (unseededParticipants) =>
+          hasManualSeeds
+            ? shuffleParticipants(unseededParticipants)
+            : orderParticipantsForSeeding(unseededParticipants, selectedSeedingMethod),
+      );
 
       const { data: stage, error: stageError } = await supabase
         .from("tournament_stages")
@@ -1550,11 +1609,19 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     setNotice(null);
     setError(null);
     let createdStageId: string | null = null;
+    let createdPlayoffStageId: string | null = null;
+    let noMatchPlayoffGenerated = false;
 
     try {
-      const orderedParticipants = orderParticipantsForGroupDraw(
+      const hasManualSeeds = checkedInParticipants.some((participant) => participant.manualSeed !== null);
+      const groupAssignments = buildSeededGroupAssignments(
         checkedInParticipants,
-        selectedSeedingMethod,
+        tournament.group_size,
+        tournament.groups_count,
+        (unseededParticipants) =>
+          hasManualSeeds
+            ? shuffleParticipants(unseededParticipants)
+            : orderParticipantsForGroupDraw(unseededParticipants, selectedSeedingMethod),
       );
 
       const { data: stage, error: stageError } = await supabase
@@ -1611,24 +1678,21 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         throw groupsError;
       }
 
-      const memberInserts = createdGroups.flatMap((group, groupIndex) => {
-        return Array.from({ length: tournament.group_size! }, (_, index) => {
-          const participant = getGroupDrawParticipant(
-            orderedParticipants,
-            groupIndex,
-            index,
-            tournament.groups_count!,
-          );
+      const memberInserts = groupAssignments.map((assignment) => {
+        const group = createdGroups[assignment.groupIndex];
 
-          return {
-            tournament_id: tournament.id,
-            group_id: group.id,
-            user_id: participant?.userId ?? null,
-            is_bye: !participant,
-            seed: index + 1,
-            draw_position: groupIndex * tournament.group_size! + index + 1,
-          };
-        });
+        if (!group) {
+          throw new Error("Unable to match group assignment to a created group.");
+        }
+
+        return {
+          tournament_id: tournament.id,
+          group_id: group.id,
+          user_id: assignment.participant?.userId ?? null,
+          is_bye: assignment.isBye,
+          seed: assignment.slotIndex + 1,
+          draw_position: assignment.groupIndex * tournament.group_size! + assignment.slotIndex + 1,
+        };
       });
 
       const { data: createdMembers, error: membersError } = await supabase
@@ -1664,10 +1728,124 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         }));
       });
 
-      const { error: matchesError } = await supabase.from("matches").insert(matchInserts);
+      if (matchInserts.length > 0) {
+        const { error: matchesError } = await supabase.from("matches").insert(matchInserts);
 
-      if (matchesError) {
-        throw matchesError;
+        if (matchesError) {
+          throw matchesError;
+        }
+      } else {
+        const { data: generatedPlayoff, error: playoffError } = await supabase.rpc("auto_generate_group_playoff", {
+          actor: user.id,
+          target_tournament: tournament.id,
+        });
+
+        if (playoffError) {
+          throw playoffError;
+        }
+
+        if (!generatedPlayoff) {
+          const qualifiers = createdGroups
+            .flatMap((group) => {
+              return createdMembers
+                .filter((member) => member.group_id === group.id && !isGroupBye(member) && member.user_id)
+                .sort((first, second) => first.seed - second.seed)
+                .slice(0, tournament.qualifiers_per_group ?? 0)
+                .map((member) => ({
+                  groupNumber: group.group_number,
+                  seed: member.seed,
+                  userId: member.user_id!,
+                }));
+            })
+            .sort(
+              (first, second) =>
+                first.seed - second.seed ||
+                first.groupNumber - second.groupNumber ||
+                first.userId.localeCompare(second.userId),
+            );
+          const playoffBracketSize = getSupportedPlayoffBracketSize(qualifiers.length);
+
+          if (!playoffBracketSize || qualifiers.length < 2) {
+            throw new Error("No-match group draw did not produce enough playoff qualifiers.");
+          }
+
+          const playoffRoundFormats = getTournamentRoundFormats(tournament, playoffBracketSize);
+          const { data: playoffStage, error: playoffStageError } = await supabase
+            .from("tournament_stages")
+            .insert({
+              tournament_id: tournament.id,
+              stage_number: stage.stage_number + 1,
+              name: "Playoff Bracket",
+              bracket_type: "single_elimination",
+              bracket_size: playoffBracketSize,
+              seeding_method: "group_finish",
+              generated_by: user.id,
+            })
+            .select()
+            .single();
+
+          if (playoffStageError) {
+            throw playoffStageError;
+          }
+
+          createdPlayoffStageId = playoffStage.id;
+
+          const { data: createdPlayoffRounds, error: playoffRoundsError } = await supabase
+            .from("tournament_rounds")
+            .insert(
+              playoffRoundFormats.map((format, index) => ({
+                tournament_id: tournament.id,
+                stage_id: playoffStage.id,
+                round_number: index + 1,
+                name: getRoundName(playoffBracketSize, index + 1),
+                match_format: format,
+              })),
+            )
+            .select();
+
+          if (playoffRoundsError) {
+            throw playoffRoundsError;
+          }
+
+          const playoffRoundByNumber = new Map(
+            createdPlayoffRounds.map((round) => [round.round_number, round]),
+          );
+          const generatedPlayoffMatches = generateSingleEliminationMatches(
+            qualifiers.map((qualifier, index) => ({
+              userId: qualifier.userId,
+              seed: index + 1,
+            })),
+            playoffBracketSize,
+            playoffRoundFormats,
+          );
+
+          const { error: playoffMatchesError } = await supabase.from("matches").insert(
+            generatedPlayoffMatches.map((match) => ({
+              tournament_id: tournament.id,
+              stage_id: playoffStage.id,
+              round_id: playoffRoundByNumber.get(match.roundNumber)?.id ?? null,
+              round_number: match.roundNumber,
+              match_number: match.matchNumber,
+              bracket_position: match.bracketPosition,
+              player_one_id: match.playerOneId,
+              player_two_id: match.playerTwoId,
+              player_one_seed: match.playerOneSeed,
+              player_two_seed: match.playerTwoSeed,
+              player_one_slot: match.playerOneSlot,
+              player_two_slot: match.playerTwoSlot,
+              format: match.format,
+              status: match.status,
+              winner_id: match.winnerId,
+              result_type: match.status === "bye" ? "bye" : "played",
+            })),
+          );
+
+          if (playoffMatchesError) {
+            throw playoffMatchesError;
+          }
+        }
+
+        noMatchPlayoffGenerated = true;
       }
 
       const { error: statusError } = await supabase
@@ -1682,11 +1860,19 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         throw statusError;
       }
 
-      setNotice("Group draw generated and group matches created.");
+      setNotice(
+        noMatchPlayoffGenerated
+          ? "Group draw generated with no group matches; playoff bracket created."
+          : "Group draw generated and group matches created.",
+      );
       await loadTournament();
       router.refresh();
       setActiveTab("groups");
     } catch (caughtError) {
+      if (createdPlayoffStageId) {
+        await supabase.from("tournament_stages").delete().eq("id", createdPlayoffStageId);
+      }
+
       if (createdStageId) {
         await supabase.from("tournament_stages").delete().eq("id", createdStageId);
       }
@@ -2265,11 +2451,57 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                         ? `Checked in ${formatDateTime(participant.checkIn.checked_in_at)}`
                         : "Registered"}
                     </p>
+                    {participant.manualSeed ? (
+                      <p className="muted">Manual tournament seed {participant.manualSeed}</p>
+                    ) : null}
                   </div>
                   <div className="role-actions">
+                    {participant.manualSeed ? (
+                      <span className="badge status-badge-gold">Seed {participant.manualSeed}</span>
+                    ) : null}
                     <span className="badge">
                       {participant.checkIn ? "Checked In" : "Registered"}
                     </span>
+                    {canManageTournament ? (
+                      <label className="compact-control" htmlFor={`manual-seed-${participant.registrationId}`}>
+                        Seed
+                        <select
+                          disabled={
+                            !canEditManualSeeds ||
+                            !isEligibleParticipant(participant) ||
+                            savingAction === "manual-seed"
+                          }
+                          id={`manual-seed-${participant.registrationId}`}
+                          value={participant.manualSeed ?? ""}
+                          onChange={(event) =>
+                            setTournamentRegistrationSeed(
+                              participant,
+                              event.target.value ? Number(event.target.value) : null,
+                            )
+                          }
+                        >
+                          <option value="">None</option>
+                          {manualSeedOptions.map((seed) => {
+                            const seedHolder = assignedManualSeeds.get(seed);
+                            const isTakenByAnother =
+                              Boolean(seedHolder) &&
+                              seedHolder?.registrationId !== participant.registrationId;
+
+                            return (
+                              <option
+                                disabled={isTakenByAnother}
+                                key={seed}
+                                value={seed}
+                              >
+                                {isTakenByAnother
+                                  ? `${seed} - ${seedHolder?.displayName ?? "Assigned"}`
+                                  : seed}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </label>
+                    ) : null}
                     {canManageTournament && participant.checkIn ? (
                       <button
                         className="button secondary-button"
@@ -2406,6 +2638,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                             const member = group.members.find(
                               (candidate) => candidate.user_id === standing.userId,
                             );
+                            const standingParticipant = participantsByUserId.get(standing.userId);
 
                             return (
                               <tr key={standing.userId}>
@@ -2413,6 +2646,13 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                                   <PlayerProfileLink userId={standing.userId}>
                                     {getProfileName(profileMap, standing.userId) ?? "Player"}
                                   </PlayerProfileLink>
+                                  {standingParticipant?.manualSeed ? (
+                                    <div className="inline-actions">
+                                      <span className="badge status-badge-gold">
+                                        Seed {standingParticipant.manualSeed}
+                                      </span>
+                                    </div>
+                                  ) : null}
                                 </td>
                                 <td>
                                   {standing.matchWins}-{standing.matchLosses}
@@ -2467,6 +2707,15 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                         </tbody>
                       </table>
                     </div>
+                    {groupByeCount > 0 ? (
+                      <div className="compact-list">
+                        {group.members.filter(isGroupBye).map((member) => (
+                          <span className="badge status-badge-muted" key={member.id}>
+                            Slot {member.seed}: BYE/no-match
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                   </section>
                 );
               })}
@@ -2650,6 +2899,23 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             </div>
           </div>
 
+          <div className="management-actions">
+            <div>
+              <h3>Manual Seeds</h3>
+              <p className="muted">
+                Assign optional tournament seeds from the Players tab before generating the draw. Seeded players are placed first; unseeded checked-in players are randomly drawn into remaining slots.
+              </p>
+              <p className="muted">
+                {isGroupStageTournament
+                  ? `${explainGroupSeedPlacement(tournament.groups_count ?? 0)} Empty group slots become BYE/no-match slots and do not count in standings.`
+                  : `Seeds 1-${maxManualSeedForTournament} are available for the selected bracket size.`}
+              </p>
+            </div>
+            <MatchStatusBadge tone={canEditManualSeeds ? "gold" : "muted"}>
+              {canEditManualSeeds ? "Editable" : "Locked After Draw"}
+            </MatchStatusBadge>
+          </div>
+
           {roles.isAdmin && !isGroupStageTournament ? (
             <div className="management-actions">
               <div>
@@ -2735,7 +3001,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             <div>
               <h3>Start Tournament</h3>
               <p className="muted">
-                Starts the tournament, seeds players by {seedingMethodLabels[selectedSeedingMethod].toLowerCase()}, creates the bracket, applies BYEs, and opens first-round matches.
+                Starts the tournament, places manual seeds first, fills remaining bracket slots by random draw when seeds are assigned or {seedingMethodLabels[selectedSeedingMethod].toLowerCase()} otherwise, applies BYEs, and opens first-round matches.
               </p>
             </div>
             <div className="role-actions">
@@ -2785,8 +3051,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                   </p>
                   {checkedInParticipants.length < (tournament.groups_count ?? 0) * 2 ? (
                     <p className="muted">
-                      Underfilled starts are allowed for testing; checked-in players are packed into
-                      the first active group slots and unused groups become BYE/no-match groups.
+                      Underfilled starts are allowed for testing; checked-in players are distributed evenly across groups and unused slots become BYE/no-match slots.
                     </p>
                   ) : null}
                 </div>
@@ -2813,7 +3078,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                 <div>
                   <h3>Start Tournament</h3>
                   <p className="muted">
-                    Starts the tournament, draws groups, and creates all round-robin group match rooms. Empty group slots are labeled BYE/no-match and skipped.
+                    Starts the tournament, places manual seeds first, draws unseeded checked-in players into balanced group slots, and creates player-vs-player group match rooms. With manual seeds, unseeded players are random-drawn. Empty group slots are labeled BYE/no-match and skipped.
                   </p>
                 </div>
                 <div className="role-actions">

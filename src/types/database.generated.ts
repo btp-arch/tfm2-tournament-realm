@@ -1167,6 +1167,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          manual_seed: number | null
           seed: number | null
           status: Database["public"]["Enums"]["registration_status"]
           tournament_id: string
@@ -1176,6 +1177,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          manual_seed?: number | null
           seed?: number | null
           status?: Database["public"]["Enums"]["registration_status"]
           tournament_id: string
@@ -1185,6 +1187,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          manual_seed?: number | null
           seed?: number | null
           status?: Database["public"]["Enums"]["registration_status"]
           tournament_id?: string
@@ -2247,6 +2250,25 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "tournaments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      set_tournament_registration_seed: {
+        Args: { seed_value: number | null; target_registration: string }
+        Returns: {
+          created_at: string
+          id: string
+          manual_seed: number | null
+          seed: number | null
+          status: Database["public"]["Enums"]["registration_status"]
+          tournament_id: string
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "tournament_registrations"
           isOneToOne: true
           isSetofReturn: false
         }

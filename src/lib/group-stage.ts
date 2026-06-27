@@ -48,6 +48,18 @@ export type GroupStageFormatInput = {
   qualifiersPerGroup: number;
 };
 
+export type GroupDrawRegistration = {
+  manualSeed: number | null;
+  userId: string;
+};
+
+export type GroupAssignment<T extends GroupDrawRegistration> = {
+  groupIndex: number;
+  isBye: boolean;
+  participant: T | null;
+  slotIndex: number;
+};
+
 export const supportedPlayoffBracketSizes = [4, 8, 16, 32, 64] as const;
 
 export function getGroupLabel(groupNumber: number) {
@@ -136,6 +148,175 @@ export function isGroupBye(member: TournamentGroupMemberRow) {
 
 export function isForfeitResult(match: MatchRow) {
   return match.result_type === "forfeit";
+}
+
+export function getBalancedSeedGroupIndex(seed: number, groupsCount: number) {
+  if (groupsCount <= 1) {
+    return 0;
+  }
+
+  // Snake seeds across groups, then reverse direction to pair high seeds with lower seeds.
+  // For 4 groups, seeds 1-8 map to A, B, C, D, D, C, B, A.
+  const zeroBasedSeed = seed - 1;
+  const pass = Math.floor(zeroBasedSeed / groupsCount);
+  const offset = zeroBasedSeed % groupsCount;
+
+  return pass % 2 === 0 ? offset : groupsCount - 1 - offset;
+}
+
+export function explainGroupSeedPlacement(groupsCount: number) {
+  if (groupsCount <= 1) {
+    return "Manual seeds are placed into the only group before random draw.";
+  }
+
+  return "Manual seeds are spread by snake pass: seeds fill Group A onward, then reverse back so high and low seeds balance across groups.";
+}
+
+function findGroupWithRoom<T extends GroupDrawRegistration>(
+  groups: (T | null)[][],
+  preferredGroupIndex: number,
+) {
+  const preferredGroup = groups[preferredGroupIndex];
+
+  if (preferredGroup?.some((slot) => slot === null)) {
+    return preferredGroupIndex;
+  }
+
+  return groups.reduce(
+    (bestIndex, group, groupIndex) => {
+      if (!group.some((slot) => slot === null)) {
+        return bestIndex;
+      }
+
+      if (bestIndex === -1) {
+        return groupIndex;
+      }
+
+      const bestRealCount = groups[bestIndex]?.filter(Boolean).length ?? 0;
+      const groupRealCount = group.filter(Boolean).length;
+
+      if (groupRealCount !== bestRealCount) {
+        return groupRealCount < bestRealCount ? groupIndex : bestIndex;
+      }
+
+      return Math.abs(groupIndex - preferredGroupIndex) < Math.abs(bestIndex - preferredGroupIndex)
+        ? groupIndex
+        : bestIndex;
+    },
+    -1,
+  );
+}
+
+function placeParticipantInGroup<T extends GroupDrawRegistration>(
+  groups: (T | null)[][],
+  participant: T,
+  groupIndex: number,
+) {
+  const group = groups[groupIndex];
+  const slotIndex = group?.findIndex((slot) => slot === null) ?? -1;
+
+  if (!group || slotIndex === -1) {
+    throw new Error("Group draw capacity was exceeded.");
+  }
+
+  group[slotIndex] = participant;
+}
+
+export function distributeUnseededPlayersEvenly<T extends GroupDrawRegistration>(
+  groups: (T | null)[][],
+  unseededRegistrations: T[],
+) {
+  for (const participant of unseededRegistrations) {
+    const targetGroupIndex = groups.reduce(
+      (bestIndex, group, groupIndex) => {
+        if (!group.some((slot) => slot === null)) {
+          return bestIndex;
+        }
+
+        if (bestIndex === -1) {
+          return groupIndex;
+        }
+
+        const groupRealCount = group.filter(Boolean).length;
+        const bestRealCount = groups[bestIndex]?.filter(Boolean).length ?? 0;
+
+        return groupRealCount < bestRealCount ? groupIndex : bestIndex;
+      },
+      -1,
+    );
+
+    if (targetGroupIndex === -1) {
+      throw new Error("Group draw capacity was exceeded.");
+    }
+
+    placeParticipantInGroup(groups, participant, targetGroupIndex);
+  }
+}
+
+export function fillGroupByes<T extends GroupDrawRegistration>(
+  groups: (T | null)[][],
+): GroupAssignment<T>[] {
+  return groups.flatMap((group, groupIndex) =>
+    group.map((participant, slotIndex) => ({
+      groupIndex,
+      isBye: participant === null,
+      participant,
+      slotIndex,
+    })),
+  );
+}
+
+export function buildSeededGroupAssignments<T extends GroupDrawRegistration>(
+  participants: T[],
+  groupSize: number,
+  groupsCount: number,
+  orderUnseededRegistrations: (registrations: T[]) => T[],
+) {
+  const totalGroupSlots = groupSize * groupsCount;
+
+  if (participants.length > totalGroupSlots) {
+    throw new Error(`Group draw can hold ${totalGroupSlots} checked-in players.`);
+  }
+
+  const groups: (T | null)[][] = Array.from({ length: groupsCount }, () =>
+    Array.from({ length: groupSize }, () => null),
+  );
+  const seededRegistrations = participants
+    .filter((participant) => participant.manualSeed !== null)
+    .sort((first, second) => (first.manualSeed ?? 0) - (second.manualSeed ?? 0));
+  const seenSeeds = new Set<number>();
+
+  for (const participant of seededRegistrations) {
+    const manualSeed = participant.manualSeed;
+
+    if (!manualSeed || manualSeed < 1 || manualSeed > 8) {
+      throw new Error("Manual seeds must be empty or between 1 and 8.");
+    }
+
+    if (seenSeeds.has(manualSeed)) {
+      throw new Error(`Seed ${manualSeed} is already assigned in this tournament.`);
+    }
+
+    seenSeeds.add(manualSeed);
+
+    const targetGroupIndex = findGroupWithRoom(
+      groups,
+      getBalancedSeedGroupIndex(manualSeed, groupsCount),
+    );
+
+    if (targetGroupIndex === -1) {
+      throw new Error("Group draw capacity was exceeded.");
+    }
+
+    placeParticipantInGroup(groups, participant, targetGroupIndex);
+  }
+
+  distributeUnseededPlayersEvenly(
+    groups,
+    orderUnseededRegistrations(participants.filter((participant) => participant.manualSeed === null)),
+  );
+
+  return fillGroupByes(groups);
 }
 
 function getMatchPlayerScore(match: MatchRow, userId: string) {
@@ -323,7 +504,7 @@ export function areGroupMatchesComplete(groups: GroupWithMembers[], matches: Mat
   const groupIds = new Set(groups.map((group) => group.id));
   const groupMatches = matches.filter((match) => match.group_id && groupIds.has(match.group_id));
 
-  return groupMatches.length > 0 && groupMatches.every((match) => match.status === "finalized");
+  return groups.length > 0 && groupMatches.every((match) => match.status === "finalized");
 }
 
 export function calculateQualifierSeedOrder(
