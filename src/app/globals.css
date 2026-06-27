@@ -816,6 +816,115 @@ textarea {
   min-width: 0;
 }
 
+.live-control-priority {
+  border-color: var(--border-strong);
+  background: #121b28;
+}
+
+.live-metric-grid,
+.live-group-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: .75rem;
+  margin-top: 1rem;
+}
+
+.live-control-grid {
+  align-items: stretch;
+}
+
+.live-metric-card,
+.live-group-progress-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .85rem;
+  background: var(--surface-subtle);
+  min-width: 0;
+}
+
+.live-metric-card {
+  display: grid;
+  gap: .35rem;
+  align-content: start;
+}
+
+.live-metric-card span {
+  color: var(--muted);
+  font-size: .82rem;
+}
+
+.live-metric-card strong {
+  font-size: 1.08rem;
+  overflow-wrap: anywhere;
+}
+
+.live-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  margin-top: .85rem;
+}
+
+.live-bucket {
+  border-top: 1px solid var(--border);
+  padding: .85rem 0;
+}
+
+.live-bucket:first-of-type {
+  margin-top: .5rem;
+}
+
+.live-bucket summary {
+  display: flex;
+  gap: .75rem;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  color: #dce8f8;
+  font-weight: 700;
+}
+
+.live-attention-list {
+  display: grid;
+  gap: .75rem;
+  margin-top: .85rem;
+}
+
+.live-attention-row {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .85rem;
+  background: var(--surface-subtle);
+}
+
+.live-attention-row h3,
+.live-group-progress-card h3 {
+  margin: 0;
+}
+
+.live-attention-row p,
+.live-group-progress-card p {
+  margin: .35rem 0 0;
+}
+
+.live-attention-meta {
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.live-blocker-list {
+  margin: .75rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+}
+
 .group-stage-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 34rem), 1fr));
@@ -1563,12 +1672,17 @@ textarea {
     .tournament-result-row,
     .winner-row,
     .evidence-row,
+    .live-attention-row,
     .status-control,
     .management-actions {
     flex-direction: column;
   }
 
   .role-actions {
+    justify-content: flex-start;
+  }
+
+  .live-attention-meta {
     justify-content: flex-start;
   }
 }

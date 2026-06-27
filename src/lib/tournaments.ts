@@ -146,7 +146,7 @@ export const matchEvidenceTypeLabels: Record<MatchEvidenceType, string> = {
 
 export const matchResolutionLabels: Record<MatchResolutionAction, string> = {
   confirm_winner: "Confirm Winner",
-  no_contest: "No Contest",
+  no_contest: "Forfeit / No Contest",
   replay_required: "Require Replay",
 };
 

@@ -45,6 +45,22 @@ import {
   getMatchSlotFallback,
   isPlayableMatch,
 } from "@/lib/match-rooms";
+import {
+  formatLiveControlBlockerReason,
+  getBracketReadiness,
+  getDisputeSummary,
+  getGroupDrawReadiness,
+  getGroupStageProgress,
+  getManualSeedSummary,
+  getMatchAttentionBuckets,
+  getPlayoffReadiness,
+  getRegistrationCheckInSummary,
+  getTournamentCompletionReadiness,
+  getTournamentLiveSummary,
+  getTournamentNextAction,
+  type MatchAttentionBucketKey,
+  type MatchAttentionItem,
+} from "@/lib/live-control";
 import { ensureProfile } from "@/lib/profiles";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
@@ -63,9 +79,13 @@ import {
   tournamentStatusDescriptions,
   tournamentFormatLabels,
   tournamentStatusLabels,
+  tournamentTierLabels,
   type MatchFormat,
+  type MatchEvidenceRow,
+  type MatchReportRow,
   type MatchRow,
   type TournamentCheckInRow,
+  type DisputeRow,
   type TournamentGroupMemberRow,
   type TournamentGroupRow,
   type TournamentRegistrationRow,
@@ -119,7 +139,7 @@ type SavingAction =
   | null;
 
 type ActiveSavingAction = Exclude<SavingAction, null>;
-type TournamentTabKey = "overview" | "players" | "groups" | "bracket" | "rules" | "admin";
+type TournamentTabKey = "overview" | "players" | "groups" | "bracket" | "rules" | "live" | "admin";
 
 type MatchRoundGroup = {
   round: TournamentRoundRow;
@@ -356,6 +376,7 @@ function TournamentTabs({
   ];
 
   if (canManageTournament) {
+    tabs.push({ key: "live", label: "Live Control" });
     tabs.push({ key: "admin", label: "Organizer/Admin" });
   }
 
@@ -573,6 +594,54 @@ function TournamentPanel({
   );
 }
 
+function LiveMetricCard({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="live-metric-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function LiveAttentionRows({
+  emptyMessage,
+  items,
+}: {
+  emptyMessage: string;
+  items: MatchAttentionItem[];
+}) {
+  if (items.length === 0) {
+    return <p className="muted">{emptyMessage}</p>;
+  }
+
+  return (
+    <div className="live-attention-list">
+      {items.map((item) => (
+        <article className="live-attention-row" key={item.id}>
+          <div>
+            <h3>{item.label}</h3>
+            <p className="muted">{item.players}</p>
+            <p className="muted">
+              Host: {item.hostName ?? "Not assigned"}
+              {item.score ? ` · Score ${item.score}` : ""}
+            </p>
+          </div>
+          <div className="live-attention-meta">
+            <MatchStatusBadge tone={item.bucket === "needsReview" ? "danger" : item.bucket === "completed" ? "gold" : "muted"}>
+              {matchStatusLabels[item.status]}
+            </MatchStatusBadge>
+            {item.bucket !== "nonPlayable" ? (
+              <Link className="button secondary-button button-link" href={`/matches/${item.id}`}>
+                Match Room
+              </Link>
+            ) : null}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const router = useRouter();
   const [supabase] = useState(() => createClient());
@@ -587,6 +656,9 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const [stages, setStages] = useState<TournamentStageRow[]>([]);
   const [rounds, setRounds] = useState<TournamentRoundRow[]>([]);
   const [matches, setMatches] = useState<MatchRow[]>([]);
+  const [matchReports, setMatchReports] = useState<MatchReportRow[]>([]);
+  const [matchEvidence, setMatchEvidence] = useState<MatchEvidenceRow[]>([]);
+  const [disputes, setDisputes] = useState<DisputeRow[]>([]);
   const [groups, setGroups] = useState<TournamentGroupRow[]>([]);
   const [groupMembers, setGroupMembers] = useState<TournamentGroupMemberRow[]>([]);
   const [activeRegistrationCount, setActiveRegistrationCount] = useState(0);
@@ -633,6 +705,9 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         setUser(currentUser);
         setRoles(loadedRoles);
         setTournament(null);
+        setMatchReports([]);
+        setMatchEvidence([]);
+        setDisputes([]);
         return;
       }
 
@@ -729,6 +804,48 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
 
       const countRow = countResult.data as RegistrationCountRow | null;
       const checkIns = (checkInResult.data ?? []) as TournamentCheckInRow[];
+      const canLoadStaffReviewData = Boolean(
+        currentUser &&
+          (loadedRoles.isAdmin ||
+            loadedTournament.created_by === currentUser.id ||
+            organizerAccessResult.data),
+      );
+      const matchIds = matchesResult.data.map((match) => match.id);
+      const [
+        matchReportsResult,
+        matchEvidenceResult,
+        disputesResult,
+      ] = canLoadStaffReviewData && matchIds.length > 0
+        ? await Promise.all([
+            supabase
+              .from("match_reports")
+              .select("*")
+              .in("match_id", matchIds)
+              .order("created_at", { ascending: true }),
+            supabase
+              .from("match_evidence")
+              .select("*")
+              .in("match_id", matchIds)
+              .order("created_at", { ascending: true }),
+            supabase
+              .from("disputes")
+              .select("*")
+              .in("match_id", matchIds)
+              .order("created_at", { ascending: false }),
+          ])
+        : [
+            { data: [], error: null },
+            { data: [], error: null },
+            { data: [], error: null },
+          ];
+
+      if (matchReportsResult.error) throw matchReportsResult.error;
+      if (matchEvidenceResult.error) throw matchEvidenceResult.error;
+      if (disputesResult.error) throw disputesResult.error;
+
+      const loadedMatchReports = (matchReportsResult.data ?? []) as MatchReportRow[];
+      const loadedMatchEvidence = (matchEvidenceResult.data ?? []) as MatchEvidenceRow[];
+      const loadedDisputes = (disputesResult.data ?? []) as DisputeRow[];
       let loadedProfileMap: Record<string, PublicProfile> = {};
       const { data: registrationRows, error: registrationsError } = await supabase
         .from("tournament_registrations")
@@ -748,9 +865,21 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           ...registrationRows.map((row) => row.user_id),
           ...groupMembersResult.data.map((member) => member.user_id),
           ...matchesResult.data.flatMap((match) => [
+            match.host_user_id,
             match.player_one_id,
             match.player_two_id,
             match.winner_id,
+          ]),
+          ...loadedMatchReports.flatMap((report) => [
+            report.reporter_id,
+            report.reported_winner_id,
+          ]),
+          ...loadedMatchEvidence.map((item) => item.uploaded_by),
+          ...loadedDisputes.flatMap((dispute) => [
+            dispute.opened_by,
+            dispute.assigned_to,
+            dispute.resolved_by,
+            dispute.resolution_winner_id,
           ]),
         ].filter(Boolean) as string[]),
       );
@@ -800,6 +929,9 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       setStages(stagesResult.data);
       setRounds(roundsResult.data);
       setMatches(matchesResult.data);
+      setMatchReports(loadedMatchReports);
+      setMatchEvidence(loadedMatchEvidence);
+      setDisputes(loadedDisputes);
       setGroups(groupsResult.data);
       setGroupMembers(groupMembersResult.data);
       setActiveRegistrationCount(countRow?.active_registration_count ?? 0);
@@ -993,6 +1125,92 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       adminForceStartParticipantCount >= 2 &&
       adminForceStartParticipantCount <= selectedBracketSize,
   );
+  const liveRegistrationSummary = tournament
+    ? getRegistrationCheckInSummary(tournament, participants, selectedBracketSize)
+    : null;
+  const liveManualSeedSummary = getManualSeedSummary(participants);
+  const liveGroupDrawReadiness =
+    tournament && liveRegistrationSummary
+      ? getGroupDrawReadiness(tournament, liveRegistrationSummary.checkedInCount, hasGroupDraw)
+      : null;
+  const liveBracketReadiness =
+    tournament && liveRegistrationSummary
+      ? getBracketReadiness(
+          tournament,
+          liveRegistrationSummary.checkedInCount,
+          selectedBracketSize,
+          hasGeneratedBracket,
+        )
+      : null;
+  const liveDisputeSummary = useMemo(
+    () => getDisputeSummary(disputes, matchReports, matchEvidence),
+    [disputes, matchEvidence, matchReports],
+  );
+  const liveMatchAttentionBuckets = useMemo(
+    () =>
+      getMatchAttentionBuckets(
+        matches,
+        groupsWithMembers,
+        profileMap,
+        liveDisputeSummary.mismatchMatchIds,
+      ),
+    [groupsWithMembers, liveDisputeSummary.mismatchMatchIds, matches, profileMap],
+  );
+  const liveGroupStageProgress = useMemo(
+    () =>
+      tournament
+        ? getGroupStageProgress(groupsWithMembers, matches, tournament, profileMap)
+        : [],
+    [groupsWithMembers, matches, profileMap, tournament],
+  );
+  const liveCompletionReadiness = tournament
+    ? getTournamentCompletionReadiness(tournament, matches, playoffMatches, profileMap)
+    : null;
+  const livePlayoffReadiness = tournament
+    ? getPlayoffReadiness(groupsWithMembers, matches, tournament, hasPlayoffBracket)
+    : null;
+  const liveSummary =
+    tournament && liveRegistrationSummary
+      ? getTournamentLiveSummary({
+          disputes,
+          hasGroupDraw,
+          hasPlayoffBracket,
+          matches,
+          participants,
+          reports: matchReports,
+          selectedBracketSize,
+          tournament,
+        })
+      : null;
+  const liveNextAction =
+    tournament &&
+    liveRegistrationSummary &&
+    liveGroupDrawReadiness &&
+    liveBracketReadiness &&
+    liveCompletionReadiness
+      ? getTournamentNextAction({
+          bracketReadiness: liveBracketReadiness,
+          completionReadiness: liveCompletionReadiness,
+          disputeSummary: liveDisputeSummary,
+          groupDrawReadiness: liveGroupDrawReadiness,
+          groupStageMatches,
+          groups: groupsWithMembers,
+          hasGeneratedBracket,
+          hasGroupDraw,
+          hasPlayoffBracket,
+          matches,
+          playoffBlockedReason,
+          playoffMatches,
+          registrationSummary: liveRegistrationSummary,
+          tournament,
+        })
+      : null;
+  const urgentLiveAttentionItems = [
+    ...liveMatchAttentionBuckets.needsReview,
+    ...liveMatchAttentionBuckets.resultNeeded,
+    ...liveMatchAttentionBuckets.hostSetup,
+    ...liveMatchAttentionBuckets.inGame,
+  ];
 
   async function registerForTournament() {
     if (!user || !tournament || !canRegister) {
@@ -2126,7 +2344,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const championName =
     tournament.status === "completed" ? getChampionName(playoffMatches.length > 0 ? playoffMatches : matches, profileMap) : null;
   const selectedTab =
-    activeTab === "admin" && !canManageTournament
+    (activeTab === "admin" || activeTab === "live") && !canManageTournament
       ? "overview"
       : activeTab === "groups" && !isGroupStageTournament
         ? "overview"
@@ -2171,6 +2389,18 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
 
     return roundGroups;
   }, []);
+  const matchBucketSections: {
+    emptyMessage: string;
+    key: MatchAttentionBucketKey;
+    title: string;
+  }[] = [
+    { key: "needsReview", title: "Disputed / Needs Review", emptyMessage: "No disputes or mismatches need review." },
+    { key: "hostSetup", title: "Waiting For Host Setup", emptyMessage: "No matches are waiting on host setup." },
+    { key: "inGame", title: "In Game / Reported", emptyMessage: "No matches are currently in game or waiting on report confirmation." },
+    { key: "resultNeeded", title: "Result Needed", emptyMessage: "No assigned matches are waiting for results." },
+    { key: "completed", title: "Completed", emptyMessage: "No completed matches yet." },
+    { key: "nonPlayable", title: "BYE / No-Match", emptyMessage: "No BYE or no-match rows." },
+  ];
 
   return (
     <>
@@ -2354,6 +2584,346 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           </section>
         ) : null}
       </TournamentPanel>
+
+      {canManageTournament && liveSummary && liveRegistrationSummary && liveNextAction ? (
+        <TournamentPanel active={selectedTab === "live"} id="live">
+          <section className="card live-control-priority">
+            <div className="section-heading compact-heading">
+              <div>
+                <h2>Next Recommended Action</h2>
+                <p className={liveNextAction.tone === "attention" || liveNextAction.tone === "blocked" ? "error" : "notice"}>
+                  {liveNextAction.label}
+                </p>
+                <p className="muted">{liveNextAction.detail}</p>
+              </div>
+              {liveNextAction.target ? (
+                <button
+                  className="button secondary-button"
+                  type="button"
+                  onClick={() => setActiveTab(liveNextAction.target!)}
+                >
+                  Open {liveNextAction.target === "admin" ? "Organizer/Admin" : liveNextAction.target}
+                </button>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="section-heading compact-heading">
+              <div>
+                <h2>Tournament Status Summary</h2>
+                <p className="muted">Operational counters for the current live state.</p>
+              </div>
+              {liveDisputeSummary.openDisputeCount > 0 || liveDisputeSummary.resultMismatchCount > 0 ? (
+                <MatchStatusBadge tone="danger">Needs Attention</MatchStatusBadge>
+              ) : (
+                <MatchStatusBadge tone="gold">No Review Blockers</MatchStatusBadge>
+              )}
+            </div>
+            <div className="live-metric-grid">
+              <LiveMetricCard label="Status" value={tournamentStatusLabels[tournament.status]} />
+              <LiveMetricCard label="Format" value={tournamentFormatLabels[tournament.tournament_format]} />
+              <LiveMetricCard label="Tier" value={tournamentTierLabels[tournament.tournament_tier]} />
+              <LiveMetricCard label="Registered" value={liveSummary.registrationCount} />
+              <LiveMetricCard label="Checked In" value={liveSummary.checkedInCount} />
+              <LiveMetricCard
+                label={isGroupStageTournament ? "Group Capacity" : "Capacity"}
+                value={liveSummary.totalCapacity ? `${liveSummary.registrationCount}/${liveSummary.totalCapacity}` : liveSummary.registrationCount}
+              />
+              <LiveMetricCard label="Manual Seeds" value={liveSummary.manualSeedCount} />
+              <LiveMetricCard label="Group Draw" value={liveSummary.groupDrawStatus} />
+              <LiveMetricCard label="Bracket / Playoff" value={liveSummary.bracketPlayoffStatus} />
+              <LiveMetricCard label="Active Matches" value={liveSummary.activeMatchCount} />
+              <LiveMetricCard label="Completed Matches" value={liveSummary.completedMatchCount} />
+              <LiveMetricCard label="Disputes" value={liveSummary.disputeCount} />
+              <LiveMetricCard label="Mismatches" value={liveSummary.resultMismatchCount} />
+            </div>
+          </section>
+
+          <section className="grid live-control-grid">
+            <div className="card">
+              <div className="section-heading compact-heading">
+                <div>
+                  <h2>Registration and Check-In</h2>
+                  <p className="muted">
+                    {liveRegistrationSummary.checkedInCount}/{liveRegistrationSummary.registeredCount} players checked in.
+                  </p>
+                </div>
+                <button className="button secondary-button" type="button" onClick={() => setActiveTab("players")}>
+                  Players
+                </button>
+              </div>
+              <dl className="meta-grid">
+                <div>
+                  <dt>Not Checked In</dt>
+                  <dd>{liveRegistrationSummary.notCheckedInParticipants.length}</dd>
+                </div>
+                <div>
+                  <dt>Manual Seeds</dt>
+                  <dd>{liveManualSeedSummary.count}</dd>
+                </div>
+                <div>
+                  <dt>Seed Warnings</dt>
+                  <dd>
+                    {liveManualSeedSummary.duplicateSeeds.length > 0
+                      ? `Duplicate seeds: ${liveManualSeedSummary.duplicateSeeds.join(", ")}`
+                      : "None"}
+                  </dd>
+                </div>
+              </dl>
+              {isGroupStageTournament ? (
+                <p className="muted">
+                  {liveGroupDrawReadiness?.detail ?? "Group readiness unavailable."}
+                </p>
+              ) : (
+                <p className="muted">
+                  {liveBracketReadiness?.detail ?? "Bracket readiness unavailable."}
+                </p>
+              )}
+              {liveRegistrationSummary.notCheckedInParticipants.length > 0 ? (
+                <div className="live-chip-list" aria-label="Not checked-in players">
+                  {liveRegistrationSummary.notCheckedInParticipants.slice(0, 12).map((participant) => (
+                    <span className="badge status-badge-muted" key={participant.userId}>
+                      {participant.displayName}
+                    </span>
+                  ))}
+                  {liveRegistrationSummary.notCheckedInParticipants.length > 12 ? (
+                    <span className="badge">+{liveRegistrationSummary.notCheckedInParticipants.length - 12} more</span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="card">
+              <div className="section-heading compact-heading">
+                <div>
+                  <h2>{isGroupStageTournament ? "Draw / Playoff" : "Bracket"}</h2>
+                  <p className="muted">
+                    {isGroupStageTournament
+                      ? liveGroupDrawReadiness?.detail
+                      : liveBracketReadiness?.detail}
+                  </p>
+                </div>
+              </div>
+              {isGroupStageTournament ? (
+                <>
+                  <dl className="meta-grid">
+                    <div>
+                      <dt>Groups</dt>
+                      <dd>{tournament.groups_count} × {tournament.group_size}</dd>
+                    </div>
+                    <div>
+                      <dt>Qualifiers</dt>
+                      <dd>{tournament.qualifiers_per_group} per group</dd>
+                    </div>
+                    <div>
+                      <dt>Playoff Size</dt>
+                      <dd>{livePlayoffReadiness?.bracketSize ?? "Pending"}</dd>
+                    </div>
+                    <div>
+                      <dt>Playoff BYEs</dt>
+                      <dd>{livePlayoffReadiness?.byeCount ?? 0}</dd>
+                    </div>
+                  </dl>
+                  <p className={livePlayoffReadiness?.blocker ? "error" : "muted"}>
+                    {hasPlayoffBracket
+                      ? "Playoff bracket has been generated."
+                      : formatLiveControlBlockerReason(livePlayoffReadiness?.blocker)}
+                  </p>
+                  <div className="role-actions">
+                    <button
+                      className="button"
+                      disabled={
+                        savingAction === "generate-groups" ||
+                        hasGroupDraw ||
+                        tournament.status !== "check_in" ||
+                        !liveGroupDrawReadiness?.allowed
+                      }
+                      type="button"
+                      onClick={startTournament}
+                    >
+                      {savingAction === "generate-groups" ? "Starting..." : "Generate Group Draw"}
+                    </button>
+                    <button
+                      className="button danger-button"
+                      disabled={savingAction === "reset-groups" || !hasGroupDraw || hasPlayoffBracket}
+                      type="button"
+                      onClick={resetGroupDraw}
+                    >
+                      {savingAction === "reset-groups" ? "Resetting..." : "Reset Group Draw"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className={liveBracketReadiness?.blocker && !liveBracketReadiness.allowed ? "error" : "muted"}>
+                    {liveBracketReadiness?.blocker ?? "Ready to generate from checked-in players."}
+                  </p>
+                  {liveManualSeedSummary.count > 0 ? (
+                    <p className="muted">Manual seeds are assigned and will be placed before unseeded players.</p>
+                  ) : null}
+                  <div className="role-actions">
+                    <button
+                      className="button"
+                      disabled={
+                        savingAction === "generate" ||
+                        hasGeneratedBracket ||
+                        tournament.status !== "check_in" ||
+                        !liveBracketReadiness?.allowed
+                      }
+                      type="button"
+                      onClick={startTournament}
+                    >
+                      {savingAction === "generate" ? "Starting..." : "Generate Bracket"}
+                    </button>
+                    <button
+                      className="button danger-button"
+                      disabled={savingAction === "reset" || !hasGeneratedBracket}
+                      type="button"
+                      onClick={resetBracket}
+                    >
+                      {savingAction === "reset" ? "Resetting..." : "Reset Bracket"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="section-heading compact-heading">
+              <div>
+                <h2>Match Attention</h2>
+                <p className="muted">
+                  {urgentLiveAttentionItems.length} match{urgentLiveAttentionItems.length === 1 ? "" : "es"} currently need operational attention.
+                </p>
+              </div>
+            </div>
+            {matchBucketSections.map((section) => (
+              <details
+                className="live-bucket"
+                key={section.key}
+                open={section.key === "needsReview" || section.key === "resultNeeded"}
+              >
+                <summary>
+                  <span>{section.title}</span>
+                  <span className="badge">{liveMatchAttentionBuckets[section.key].length}</span>
+                </summary>
+                <LiveAttentionRows
+                  emptyMessage={section.emptyMessage}
+                  items={liveMatchAttentionBuckets[section.key]}
+                />
+              </details>
+            ))}
+          </section>
+
+          {isGroupStageTournament ? (
+            <section className="card">
+              <div className="section-heading compact-heading">
+                <div>
+                  <h2>Group Stage Progress</h2>
+                  <p className={playoffBlockedReason ? "muted" : "notice"}>
+                    {playoffBlockedReason ?? "Ready for playoff generation."}
+                  </p>
+                </div>
+                <button className="button secondary-button" type="button" onClick={() => setActiveTab("groups")}>
+                  Groups
+                </button>
+              </div>
+              <div className="live-group-progress-grid">
+                {liveGroupStageProgress.length === 0 ? (
+                  <p className="muted">Group draw has not been generated yet.</p>
+                ) : (
+                  liveGroupStageProgress.map((group) => (
+                    <article className="live-group-progress-card" key={group.id}>
+                      <div className="section-heading compact-heading">
+                        <h3>{group.name}</h3>
+                        <MatchStatusBadge tone={group.completedMatches === group.totalRealMatches ? "gold" : "muted"}>
+                          {group.completedMatches}/{group.totalRealMatches}
+                        </MatchStatusBadge>
+                      </div>
+                      <p className="muted">
+                        {group.unresolvedTieCount > 0
+                          ? `${group.unresolvedTieCount} unresolved tiebreaker flag${group.unresolvedTieCount === 1 ? "" : "s"}.`
+                          : "No unresolved tiebreaker flags."}
+                      </p>
+                      <p className="muted">
+                        FF {group.forfeitCount}
+                      </p>
+                      <p className="muted">
+                        Qualified: {group.qualifiedPlayers.length > 0 ? group.qualifiedPlayers.join(", ") : "Pending"}
+                      </p>
+                    </article>
+                  ))
+                )}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="card">
+            <div className="section-heading compact-heading">
+              <div>
+                <h2>Disputes and Mismatches</h2>
+                <p className={liveDisputeSummary.openDisputeCount || liveDisputeSummary.resultMismatchCount ? "error" : "muted"}>
+                  {liveDisputeSummary.openDisputeCount} open disputes · {liveDisputeSummary.resultMismatchCount} result mismatches · {liveDisputeSummary.evidenceCount} evidence uploads
+                </p>
+              </div>
+            </div>
+            {liveMatchAttentionBuckets.needsReview.length > 0 ? (
+              <LiveAttentionRows
+                emptyMessage="No matches need organizer review."
+                items={liveMatchAttentionBuckets.needsReview}
+              />
+            ) : (
+              <p className="muted">No open disputes or mismatched reports.</p>
+            )}
+          </section>
+
+          {liveCompletionReadiness ? (
+            <section className="card">
+              <div className="section-heading compact-heading">
+                <div>
+                  <h2>Completion</h2>
+                  <p className={liveCompletionReadiness.ready ? "notice" : "muted"}>
+                    {liveCompletionReadiness.championName
+                      ? `Champion known: ${liveCompletionReadiness.championName}.`
+                      : "Champion pending."}
+                  </p>
+                </div>
+                {roles.isAdmin && liveCompletionReadiness.ready ? (
+                  <button
+                    className="button"
+                    disabled={savingAction === "status"}
+                    type="button"
+                    onClick={() =>
+                      updateTournamentStatusTo(
+                        "completed",
+                        "Tournament marked complete.",
+                        "status",
+                      )
+                    }
+                  >
+                    {savingAction === "status" ? "Completing..." : "Mark Complete"}
+                  </button>
+                ) : null}
+              </div>
+              {liveCompletionReadiness.blockers.length > 0 ? (
+                <ul className="live-blocker-list">
+                  {liveCompletionReadiness.blockers.map((blocker) => (
+                    <li key={blocker}>{blocker}</li>
+                  ))}
+                </ul>
+              ) : tournament.status === "completed" ? (
+                <p className="muted">Tournament is already marked completed.</p>
+              ) : roles.isAdmin ? (
+                <p className="muted">Final match is complete. Admin status completion is available.</p>
+              ) : (
+                <p className="muted">Final match is complete. Ask an admin to mark the tournament complete.</p>
+              )}
+            </section>
+          ) : null}
+        </TournamentPanel>
+      ) : null}
 
       <TournamentPanel active={selectedTab === "players"} id="players">
         <section className="card">

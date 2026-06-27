@@ -415,6 +415,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
   const scoreOptions = match ? getValidScoresForMatchFormat(match.format) : [];
   const selectedReportScore = parseScoreKey(reportScoreKey);
   const selectedResolutionScore = parseScoreKey(resolutionScoreKey);
+  const resolutionRequiresWinner = resolutionAction === "confirm_winner" || resolutionAction === "no_contest";
   const finalScoreLabel = match ? formatMatchFinalScore(match) : null;
   const playableMatch = match ? isPlayableMatch(match) : false;
   const nonPlayableMessage = match ? getNonPlayableMatchMessage(match, profileMap) : null;
@@ -753,6 +754,11 @@ export function MatchRoom({ matchId }: { matchId: string }) {
       return;
     }
 
+    if (resolutionRequiresWinner && !resolutionWinnerId) {
+      setError("Select the player who should advance or receive the forfeit win.");
+      return;
+    }
+
     if (
       resolutionAction === "confirm_winner" &&
       (!selectedResolutionScore ||
@@ -772,7 +778,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
         const { error: rpcError } = await supabase.rpc("resolve_match_dispute", {
           target_match: match.id,
           resolution_action: resolutionAction,
-          selected_winner: resolutionAction === "confirm_winner" ? resolutionWinnerId : undefined,
+          selected_winner: resolutionRequiresWinner ? resolutionWinnerId : undefined,
           selected_winner_score:
             resolutionAction === "confirm_winner" ? selectedResolutionScore?.winnerScore : undefined,
           selected_loser_score:
@@ -1326,7 +1332,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
             <div>
               <h2>Organizer Review</h2>
               <p className="muted">
-                Staff can resolve disputes, require a replay, or mark no contest when player reports need review.
+                Staff can confirm a scored result, award a forfeit/no-contest win, or require a replay when player reports need review.
               </p>
             </div>
           </div>
@@ -1384,10 +1390,10 @@ export function MatchRoom({ matchId }: { matchId: string }) {
               </select>
             </label>
             <label htmlFor="resolution-winner">
-              Winner
+              {resolutionAction === "no_contest" ? "Advancing / Forfeit Winner" : "Winner"}
               <select
                 id="resolution-winner"
-                disabled={resolutionAction !== "confirm_winner"}
+                disabled={!resolutionRequiresWinner}
                 value={resolutionWinnerId}
                 onChange={(event) => setResolutionWinnerId(event.target.value)}
               >
@@ -1419,6 +1425,11 @@ export function MatchRoom({ matchId }: { matchId: string }) {
               </select>
             </label>
           </div>
+          {resolutionAction === "no_contest" ? (
+            <p className="muted">
+              Forfeit/no-contest awards advancement and group standings credit without adding public game stats.
+            </p>
+          ) : null}
           <label className="wide-field" htmlFor="resolution-note">
             Resolution Note
             <textarea
@@ -1435,6 +1446,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
               disabled={
                 savingAction === "resolve" ||
                 match.status === "finalized" ||
+                (resolutionRequiresWinner && !resolutionWinnerId) ||
                 (resolutionAction === "confirm_winner" && (!resolutionWinnerId || !resolutionScoreKey))
               }
               type="button"
