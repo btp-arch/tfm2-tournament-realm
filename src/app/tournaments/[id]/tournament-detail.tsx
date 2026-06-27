@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
@@ -95,6 +96,12 @@ type SavingAction =
   | null;
 
 type ActiveSavingAction = Exclude<SavingAction, null>;
+type TournamentTabKey = "overview" | "players" | "bracket" | "matches" | "rules" | "admin";
+
+type MatchRoundGroup = {
+  round: TournamentRoundRow;
+  matches: MatchRow[];
+};
 
 function getProfileName(profiles: Record<string, PublicProfile>, userId: string | null) {
   if (!userId) {
@@ -232,6 +239,241 @@ function getTournamentStatusGuidance(
   };
 }
 
+function getMatchStatusTone(match: MatchRow): "danger" | "gold" | "muted" | undefined {
+  if (match.status === "disputed" || match.status === "needs_admin") {
+    return "danger";
+  }
+
+  if (
+    match.status === "finalized" ||
+    match.status === "confirmed" ||
+    match.status === "bye"
+  ) {
+    return "gold";
+  }
+
+  return "muted";
+}
+
+function getRoundColumnStyle(roundIndex: number): CSSProperties {
+  const cardHeight = 124;
+  const baseGap = 16;
+  const rhythm = cardHeight + baseGap;
+  const offset = roundIndex === 0 ? 0 : (rhythm * (2 ** roundIndex - 1)) / 2;
+  const gap = rhythm * 2 ** roundIndex - cardHeight;
+
+  return {
+    "--round-gap": `${gap}px`,
+    "--round-offset": `${offset}px`,
+  } as CSSProperties;
+}
+
+function getChampionName(matches: MatchRow[], profiles: Record<string, PublicProfile>) {
+  const finalWinner = matches
+    .slice()
+    .sort((first, second) => second.round_number - first.round_number)
+    .find((match) => match.winner_id);
+
+  return finalWinner ? getProfileName(profiles, finalWinner.winner_id) : null;
+}
+
+function TournamentTabs({
+  activeTab,
+  canManageTournament,
+  onTabChange,
+}: {
+  activeTab: TournamentTabKey;
+  canManageTournament: boolean;
+  onTabChange: (tab: TournamentTabKey) => void;
+}) {
+  const tabs: { key: TournamentTabKey; label: string }[] = [
+    { key: "overview", label: "Overview" },
+    { key: "players", label: "Players" },
+    { key: "bracket", label: "Bracket" },
+    { key: "matches", label: "Matches" },
+    { key: "rules", label: "Rules" },
+  ];
+
+  if (canManageTournament) {
+    tabs.push({ key: "admin", label: "Organizer/Admin" });
+  }
+
+  return (
+    <div aria-label="Tournament detail sections" className="tournament-tabs" role="tablist">
+      {tabs.map((tab) => (
+        <button
+          aria-selected={activeTab === tab.key}
+          className={activeTab === tab.key ? "active" : undefined}
+          key={tab.key}
+          role="tab"
+          type="button"
+          onClick={() => onTabChange(tab.key)}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MatchSlotLine({
+  isWinner,
+  label,
+}: {
+  isWinner: boolean;
+  label: string;
+}) {
+  return (
+    <div className={["bracket-slot", isWinner ? "winner" : ""].filter(Boolean).join(" ")}>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function BracketMatchCard({
+  isLastRound,
+  match,
+  profiles,
+}: {
+  isLastRound: boolean;
+  match: MatchRow;
+  profiles: Record<string, PublicProfile>;
+}) {
+  const shouldLinkMatch = isPlayableMatch(match);
+  const playerOne = describeMatchSlot(
+    match.player_one_id,
+    profiles,
+    match.player_one_seed,
+    getMatchSlotFallback(match, "one"),
+  );
+  const playerTwo = describeMatchSlot(
+    match.player_two_id,
+    profiles,
+    match.player_two_seed,
+    getMatchSlotFallback(match, "two"),
+  );
+  const needsReview = match.status === "disputed" || match.status === "needs_admin";
+
+  const cardClassName = [
+    "bracket-match-card",
+    shouldLinkMatch ? "playable" : "non-playable",
+    needsReview ? "needs-review" : "",
+    isLastRound ? "last-round" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const cardContent = (
+    <>
+      <div className="bracket-card-topline">
+        <strong>Match {match.match_number ?? match.bracket_position}</strong>
+        <span>{needsReview ? "Review" : matchFormatLabels[match.format]}</span>
+      </div>
+      <MatchSlotLine
+        isWinner={Boolean(match.winner_id) && match.winner_id === match.player_one_id}
+        label={playerOne}
+      />
+      <MatchSlotLine
+        isWinner={Boolean(match.winner_id) && match.winner_id === match.player_two_id}
+        label={playerTwo}
+      />
+    </>
+  );
+
+  if (shouldLinkMatch) {
+    return (
+      <Link
+        aria-label={`Open match ${match.match_number ?? match.bracket_position}`}
+        className={cardClassName}
+        href={`/matches/${match.id}`}
+      >
+        {cardContent}
+      </Link>
+    );
+  }
+
+  return (
+    <article className={cardClassName}>
+      {cardContent}
+    </article>
+  );
+}
+
+function TournamentBracket({
+  championName,
+  matchesByRound,
+  profiles,
+}: {
+  championName: string | null;
+  matchesByRound: MatchRoundGroup[];
+  profiles: Record<string, PublicProfile>;
+}) {
+  if (matchesByRound.length === 0) {
+    return <p className="muted">No bracket has been generated yet.</p>;
+  }
+
+  return (
+    <div className="bracket-scroll" role="region" aria-label="Tournament bracket">
+      <div className="bracket-board">
+        {matchesByRound.map(({ round, matches: roundMatches }, roundIndex) => (
+          <section
+            className="bracket-column"
+            key={round.id}
+            style={getRoundColumnStyle(roundIndex)}
+          >
+            <div className="bracket-column-heading">
+              <h3>{round.name}</h3>
+            </div>
+            <div className="bracket-column-matches">
+              {roundMatches.map((match) => (
+                <BracketMatchCard
+                  isLastRound={roundIndex === matchesByRound.length - 1}
+                  key={match.id}
+                  match={match}
+                  profiles={profiles}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+        <section
+          className="bracket-column champion-column"
+          style={getRoundColumnStyle(Math.max(matchesByRound.length - 1, 0))}
+        >
+          <div className="bracket-column-heading">
+            <h3>Champion</h3>
+          </div>
+          <div className="bracket-column-matches">
+            <article className={["champion-card", championName ? "known" : ""].filter(Boolean).join(" ")}>
+              <span>Champion</span>
+              <strong>{championName ?? "Pending"}</strong>
+            </article>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function TournamentPanel({
+  active,
+  children,
+  id,
+}: {
+  active: boolean;
+  children: ReactNode;
+  id: TournamentTabKey;
+}) {
+  if (!active) {
+    return null;
+  }
+
+  return (
+    <div className="tournament-tab-panel" id={`tournament-tab-${id}`} role="tabpanel">
+      {children}
+    </div>
+  );
+}
+
 export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const router = useRouter();
   const [supabase] = useState(() => createClient());
@@ -259,6 +501,8 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [activeTab, setActiveTab] = useState<TournamentTabKey>("overview");
+  const [matchSearch, setMatchSearch] = useState("");
 
   const loadTournament = useCallback(async () => {
     try {
@@ -370,107 +614,61 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
 
       const countRow = countResult.data as RegistrationCountRow | null;
       const checkIns = (checkInResult.data ?? []) as TournamentCheckInRow[];
-      const canManageLoaded =
-        Boolean(currentUser) &&
-        (loadedRoles.isAdmin ||
-          loadedTournament.created_by === currentUser?.id ||
-          Boolean(organizerAccessResult.data));
-      let loadedParticipants: Participant[] = [];
       let loadedProfileMap: Record<string, PublicProfile> = {};
+      const { data: registrationRows, error: registrationsError } = await supabase
+        .from("tournament_registrations")
+        .select("*")
+        .eq("tournament_id", loadedTournament.id)
+        .neq("status", "withdrawn")
+        .order("created_at", { ascending: true });
 
-      if (canManageLoaded) {
-        const { data: registrationRows, error: registrationsError } = await supabase
-          .from("tournament_registrations")
-          .select("*")
-          .eq("tournament_id", loadedTournament.id)
-          .neq("status", "withdrawn")
-          .order("created_at", { ascending: true });
-
-        if (registrationsError) {
-          throw registrationsError;
-        }
-
-        const userIds = Array.from(
-          new Set([
-            loadedTournament.created_by,
-            ...stagesResult.data.map((stage) => stage.generated_by),
-            ...registrationRows.map((row) => row.user_id),
-            ...matchesResult.data.flatMap((match) => [
-              match.player_one_id,
-              match.player_two_id,
-              match.winner_id,
-            ]),
-          ].filter(Boolean) as string[]),
-        );
-
-        if (userIds.length > 0) {
-          const { data: profiles, error: profilesError } = await supabase
-            .from("public_profiles")
-            .select("id, display_name")
-            .in("id", userIds);
-
-          if (profilesError) {
-            throw profilesError;
-          }
-
-          loadedProfileMap = (profiles as PublicProfile[]).reduce<Record<string, PublicProfile>>(
-            (profilesById, profile) => {
-              if (profile.id) {
-                profilesById[profile.id] = profile;
-              }
-
-              return profilesById;
-            },
-            {},
-          );
-        }
-
-        loadedParticipants = registrationRows.map((row) => ({
-          registrationId: row.id,
-          userId: row.user_id,
-          displayName: getProfileName(loadedProfileMap, row.user_id) ?? "Player",
-          registrationStatus: row.status,
-          registeredAt: row.created_at,
-          checkIn: checkIns.find((checkIn) => checkIn.user_id === row.user_id) ?? null,
-        }));
-      } else {
-        const matchUserIds = Array.from(
-          new Set(
-            [
-              loadedTournament.created_by,
-              ...stagesResult.data.map((stage) => stage.generated_by),
-              ...matchesResult.data.flatMap((match) => [
-                match.player_one_id,
-                match.player_two_id,
-                match.winner_id,
-              ]),
-            ]
-              .filter(Boolean) as string[],
-          ),
-        );
-
-        if (matchUserIds.length > 0) {
-          const { data: profiles, error: profilesError } = await supabase
-            .from("public_profiles")
-            .select("id, display_name")
-            .in("id", matchUserIds);
-
-          if (profilesError) {
-            throw profilesError;
-          }
-
-          loadedProfileMap = (profiles as PublicProfile[]).reduce<Record<string, PublicProfile>>(
-            (profilesById, profile) => {
-              if (profile.id) {
-                profilesById[profile.id] = profile;
-              }
-
-              return profilesById;
-            },
-            {},
-          );
-        }
+      if (registrationsError) {
+        throw registrationsError;
       }
+
+      const userIds = Array.from(
+        new Set([
+          loadedTournament.created_by,
+          ...stagesResult.data.map((stage) => stage.generated_by),
+          ...registrationRows.map((row) => row.user_id),
+          ...matchesResult.data.flatMap((match) => [
+            match.player_one_id,
+            match.player_two_id,
+            match.winner_id,
+          ]),
+        ].filter(Boolean) as string[]),
+      );
+
+      if (userIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from("public_profiles")
+          .select("id, display_name")
+          .in("id", userIds);
+
+        if (profilesError) {
+          throw profilesError;
+        }
+
+        loadedProfileMap = (profiles as PublicProfile[]).reduce<Record<string, PublicProfile>>(
+          (profilesById, profile) => {
+            if (profile.id) {
+              profilesById[profile.id] = profile;
+            }
+
+            return profilesById;
+          },
+          {},
+        );
+      }
+
+      const loadedParticipants = registrationRows.map((row) => ({
+        registrationId: row.id,
+        userId: row.user_id,
+        displayName: getProfileName(loadedProfileMap, row.user_id) ?? "Player",
+        registrationStatus: row.status,
+        registeredAt: row.created_at,
+        checkIn: checkIns.find((checkIn) => checkIn.user_id === row.user_id) ?? null,
+      }));
 
       setUser(currentUser);
       setRoles(loadedRoles);
@@ -573,7 +771,6 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     ? getRegistrationReopenBlockedReason(tournament)
     : null;
   const isAdminDeleteReady = !roles.isAdmin || adminDeleteConfirmation === "DELETE";
-  const activeStage = stages[0] ?? null;
   const statusGuidance = tournament
     ? getTournamentStatusGuidance(
         tournament.status,
@@ -1232,12 +1429,64 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
 
   const matchesByRound = rounds.map((round) => ({
     round,
-    matches: matches.filter((match) => match.round_id === round.id),
+    matches: matches.filter(
+      (match) => match.round_id === round.id || match.round_number === round.round_number,
+    ),
   }));
+  const championName =
+    tournament.status === "completed" ? getChampionName(matches, profileMap) : null;
+  const selectedTab =
+    activeTab === "admin" && !canManageTournament ? "overview" : activeTab;
+  const currentUserMatch = user
+    ? matches.find(
+        (match) =>
+          isPlayableMatch(match) &&
+          match.status !== "finalized" &&
+          match.status !== "confirmed" &&
+          (match.player_one_id === user.id || match.player_two_id === user.id),
+      )
+    : null;
+  const matchSearchText = matchSearch.trim().toLowerCase();
+  const visibleMatchesByRound = matchesByRound
+    .map(({ round, matches: roundMatches }) => ({
+      round,
+      matches: roundMatches.filter((match) => {
+        if (!matchSearchText) {
+          return true;
+        }
+
+        const playerOne = describeMatchSlot(
+          match.player_one_id,
+          profileMap,
+          match.player_one_seed,
+          getMatchSlotFallback(match, "one"),
+        );
+        const playerTwo = describeMatchSlot(
+          match.player_two_id,
+          profileMap,
+          match.player_two_seed,
+          getMatchSlotFallback(match, "two"),
+        );
+
+        return [
+          `match ${match.match_number ?? match.bracket_position}`,
+          round.name,
+          playerOne,
+          playerTwo,
+          matchStatusLabels[match.status],
+          matchFormatLabels[match.format],
+          getProfileName(profileMap, match.winner_id) ?? "",
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(matchSearchText);
+      }),
+    }))
+    .filter(({ matches: roundMatches }) => roundMatches.length > 0);
 
   return (
     <>
-      <div className="section-heading">
+      <div className="section-heading tournament-title-block">
         <div>
           <div className="role-list">
             <StatusBadge status={tournament.status} />
@@ -1265,279 +1514,406 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         <p className="error">This tournament has been cancelled and is no longer accepting registration.</p>
       ) : null}
 
-      {statusGuidance ? (
-        <section className="card">
-          <h2>Event Status</h2>
-          <p>
-            <strong>{tournamentStatusLabels[tournament.status]}:</strong> {statusGuidance.current}
-          </p>
-          <p className="muted">Recommended next action: {statusGuidance.next}</p>
-        </section>
-      ) : null}
+      <TournamentTabs
+        activeTab={selectedTab}
+        canManageTournament={canManageTournament}
+        onTabChange={setActiveTab}
+      />
 
-      <section className="card">
-        <h2>Player Action Needed</h2>
-        {!user ? (
-          <p className="muted">Sign in to register, check in, or open assigned match rooms.</p>
-        ) : canCheckIn ? (
-          <p className="notice">Tournament check-in is open for you.</p>
-        ) : canRegister ? (
-          <p className="notice">Registration is open for this free-entry tournament.</p>
-        ) : registration?.status && registration.status !== "withdrawn" ? (
-          <p className="muted">You are registered. Watch this page for check-in and match room updates.</p>
-        ) : (
-          <p className="muted">No player action is needed from this account right now.</p>
-        )}
-      </section>
-
-      <section className="grid">
-        <div className="card">
-          <h2>Schedule</h2>
-          <dl className="meta-grid single-column">
-            <div>
-              <dt>Start</dt>
-              <dd>{formatDateTime(tournament.starts_at)}</dd>
-            </div>
-            <div>
-              <dt>Registration Closes</dt>
-              <dd>{formatDateTime(tournament.registration_closes_at)}</dd>
-            </div>
-          </dl>
-        </div>
-
-        <div className="card">
-          <h2>Format</h2>
-          <dl className="meta-grid single-column">
-            <div>
-              <dt>Tournament</dt>
-              <dd>{tournamentFormatLabels[tournament.tournament_format]}</dd>
-            </div>
-            <div>
-              <dt>Default Matches</dt>
-              <dd>{matchFormatLabels[tournament.format]}</dd>
-            </div>
-          </dl>
-        </div>
-
-        <div className="card">
-          <h2>Registration</h2>
-          <p className={isFull ? "error" : undefined}>
-            {activeRegistrationCount}
-            {tournament.max_players ? `/${tournament.max_players}` : ""} players registered
-          </p>
-          {registration?.status && registration.status !== "withdrawn" ? (
-            <p className="notice">You are registered.</p>
-          ) : null}
-          {registration?.status === "withdrawn" ? (
-            <p className="muted">You withdrew from this tournament.</p>
-          ) : null}
-        </div>
-      </section>
-
-      {tournament.description ? (
-        <section className="card">
-          <h2>Description</h2>
-          <p>{tournament.description}</p>
-        </section>
-      ) : null}
-
-      <section className="card">
-        <div className="section-heading">
-          <div>
-            <h2>Player Registration</h2>
-            <p className="muted">Registration and check-in use your signed-in account.</p>
-          </div>
-        </div>
-
-        {!user ? (
-          <Link className="button button-link" href={`/auth?redirectTo=/tournaments/${tournament.id}`}>
-            Sign In To Register
-          </Link>
-        ) : canRegister ? (
-          <button
-            className="button"
-            disabled={savingAction === "register"}
-            type="button"
-            onClick={registerForTournament}
-          >
-            {savingAction === "register" ? "Registering..." : "Register"}
-          </button>
-        ) : canWithdraw ? (
-          <button
-            className="button secondary-button"
-            disabled={savingAction === "withdraw"}
-            type="button"
-            onClick={withdrawFromTournament}
-          >
-            {savingAction === "withdraw" ? "Withdrawing..." : "Withdraw"}
-          </button>
-        ) : (
-          <p className="muted">{registrationBlockedReason}</p>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="section-heading">
-          <div>
-            <h2>Check-In</h2>
-            <p className="muted">
-              {tournament.status === "check_in"
-                ? "Check-in is open for registered players."
-                : `Check-in is not open. Current status: ${tournamentStatusLabels[tournament.status]}.`}
-            </p>
-          </div>
-          {ownCheckIn ? <span className="badge">Checked In</span> : null}
-        </div>
-
-        {!user ? (
-          <p className="muted">Sign in to check in after registration is locked.</p>
-        ) : ownCheckIn ? (
-          <p className="notice">You checked in at {formatDateTime(ownCheckIn.checked_in_at)}.</p>
-        ) : canCheckIn ? (
-          <button
-            className="button"
-            disabled={savingAction === "check-in"}
-            type="button"
-            onClick={checkInForTournament}
-          >
-            {savingAction === "check-in" ? "Checking in..." : "Check In"}
-          </button>
-        ) : !isActiveRegistration(registration) ? (
-          <p className="muted">You must be registered for this tournament before you can check in.</p>
-        ) : (
-          <p className="muted">Check-in opens after tournament staff move the event to check-in.</p>
-        )}
-      </section>
-
-      <section className="card">
-        <h2>Bracket</h2>
-        {activeStage ? (
-          <>
-            <p className="muted">
-              {activeStage.name}, {activeStage.bracket_size} players. Round formats are stored on each round.
-            </p>
-            <dl className="meta-grid">
-              <div>
-                <dt>Seeding</dt>
-                <dd>{seedingMethodLabels[activeStage.seeding_method]}</dd>
-              </div>
-              <div>
-                <dt>Generated By</dt>
-                <dd>{getProfileName(profileMap, activeStage.generated_by) ?? "Tournament staff"}</dd>
-              </div>
-              <div>
-                <dt>Generated At</dt>
-                <dd>{formatDateTime(activeStage.created_at)}</dd>
-              </div>
-            </dl>
-          </>
-        ) : (
-          <p className="muted">No bracket has been generated yet.</p>
-        )}
-
-        {matchesByRound.length > 0 ? (
-          <div className="bracket-rounds">
-            {matchesByRound.map(({ round, matches: roundMatches }) => (
-              <section className="bracket-round" key={round.id}>
-                <div className="section-heading">
-                  <h3>{round.name}</h3>
-                  <span className="badge">{matchFormatLabels[round.match_format]}</span>
-                </div>
-                <div className="match-list">
-                  {roundMatches.map((match) => {
-                    const shouldLinkMatch = isPlayableMatch(match);
-                    const nonPlayableMessage = getNonPlayableMatchMessage(match, profileMap);
-
-                    return (
-                      <article className="match-row" key={match.id}>
-                        <div>
-                          <strong>Match {match.match_number ?? match.bracket_position}</strong>
-                          <p className="muted">
-                            {describeMatchSlot(
-                              match.player_one_id,
-                              profileMap,
-                              match.player_one_seed,
-                              getMatchSlotFallback(match, "one"),
-                            )}{" "}
-                            vs{" "}
-                            {describeMatchSlot(
-                              match.player_two_id,
-                              profileMap,
-                              match.player_two_seed,
-                              getMatchSlotFallback(match, "two"),
-                            )}
-                          </p>
-                          {nonPlayableMessage ? (
-                            <p className="muted">{nonPlayableMessage}</p>
-                          ) : match.winner_id ? (
-                            <p className="notice">
-                              Winner: {getProfileName(profileMap, match.winner_id) ?? "Player"}
-                            </p>
-                          ) : match.status === "disputed" || match.status === "needs_admin" ? (
-                            <p className="error">Organizer review required.</p>
-                          ) : match.status === "result_reported" ? (
-                            <p className="muted">Result reports pending confirmation.</p>
-                          ) : null}
-                        </div>
-                        <div className="role-actions">
-                          <span className="badge">{matchFormatLabels[match.format]}</span>
-                          <MatchStatusBadge
-                            tone={
-                              match.status === "disputed" || match.status === "needs_admin"
-                                ? "danger"
-                                : match.status === "finalized" || match.status === "confirmed"
-                                  ? "gold"
-                                  : "muted"
-                            }
-                          >
-                            {matchStatusLabels[match.status]}
-                          </MatchStatusBadge>
-                          {shouldLinkMatch ? (
-                            <Link
-                              className="button secondary-button button-link"
-                              href={`/matches/${match.id}`}
-                            >
-                              Match Room
-                            </Link>
-                          ) : (
-                            <span className="muted">No room action</span>
-                          )}
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-          </div>
-        ) : null}
-      </section>
-
-      <section className="card">
-        <h2>Rules</h2>
-        {tournament.rules ? <p className="pre-line">{tournament.rules}</p> : <p className="muted">No rules posted yet.</p>}
-        {tournament.external_community_url ? (
-          <p>
-            <a href={tournament.external_community_url} rel="noreferrer" target="_blank">
-              Community link
-            </a>
-          </p>
-        ) : null}
-      </section>
-
-      {canManageTournament ? (
+      <TournamentPanel active={selectedTab === "overview"} id="overview">
         <section className="card">
           <div className="section-heading">
             <div>
-              <h2>Management</h2>
+              <h2>Next Action</h2>
+              {!user ? (
+                <p className="muted">Sign in to register, check in, or open assigned match rooms.</p>
+              ) : currentUserMatch ? (
+                <p className="notice">You have an active match room.</p>
+              ) : canCheckIn ? (
+                <p className="notice">Tournament check-in is open for you.</p>
+              ) : canRegister ? (
+                <p className="notice">Registration is open for this free-entry tournament.</p>
+              ) : registration?.status && registration.status !== "withdrawn" ? (
+                <p className="muted">You are registered. Watch this page for check-in and match room updates.</p>
+              ) : (
+                <p className="muted">No player action is needed from this account right now.</p>
+              )}
+            </div>
+            <div className="role-actions">
+              {!user ? (
+                <Link className="button button-link" href={`/auth?redirectTo=/tournaments/${tournament.id}`}>
+                  Sign In
+                </Link>
+              ) : currentUserMatch ? (
+                <Link className="button button-link" href={`/matches/${currentUserMatch.id}`}>
+                  Go to Match
+                </Link>
+              ) : canCheckIn ? (
+                <button
+                  className="button"
+                  disabled={savingAction === "check-in"}
+                  type="button"
+                  onClick={checkInForTournament}
+                >
+                  {savingAction === "check-in" ? "Checking in..." : "Check In"}
+                </button>
+              ) : canRegister ? (
+                <button
+                  className="button"
+                  disabled={savingAction === "register"}
+                  type="button"
+                  onClick={registerForTournament}
+                >
+                  {savingAction === "register" ? "Registering..." : "Register"}
+                </button>
+              ) : hasGeneratedBracket ? (
+                <button className="button secondary-button" type="button" onClick={() => setActiveTab("bracket")}>
+                  View Bracket
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </section>
+
+        {statusGuidance ? (
+          <section className="card">
+            <h2>Event Status</h2>
+            <p>
+              <strong>{tournamentStatusLabels[tournament.status]}:</strong> {statusGuidance.current}
+            </p>
+            <p className="muted">Recommended next action: {statusGuidance.next}</p>
+          </section>
+        ) : null}
+
+        <section className="grid">
+          <div className="card">
+            <h2>Schedule</h2>
+            <dl className="meta-grid single-column">
+              <div>
+                <dt>Start</dt>
+                <dd>{formatDateTime(tournament.starts_at)}</dd>
+              </div>
+              <div>
+                <dt>Registration Closes</dt>
+                <dd>{formatDateTime(tournament.registration_closes_at)}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="card">
+            <h2>Format</h2>
+            <dl className="meta-grid single-column">
+              <div>
+                <dt>Tournament</dt>
+                <dd>{tournamentFormatLabels[tournament.tournament_format]}</dd>
+              </div>
+              <div>
+                <dt>Default Matches</dt>
+                <dd>{matchFormatLabels[tournament.format]}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="card">
+            <h2>Registration</h2>
+            <p className={isFull ? "error" : undefined}>
+              {activeRegistrationCount}
+              {tournament.max_players ? `/${tournament.max_players}` : ""} players registered
+            </p>
+            <p className="muted">
+              {checkedInParticipants.length} checked in
+              {canManageTournament ? "" : " shown when visible to your account"}
+            </p>
+            {championName ? <p className="winner-line">Winner: {championName}</p> : null}
+          </div>
+        </section>
+
+        {tournament.description ? (
+          <section className="card">
+            <h2>Description</h2>
+            <p>{tournament.description}</p>
+          </section>
+        ) : null}
+      </TournamentPanel>
+
+      <TournamentPanel active={selectedTab === "players"} id="players">
+        <section className="card">
+          <div className="section-heading">
+            <div>
+              <h2>Player Registration</h2>
               <p className="muted">
-                {checkedInParticipants.length}/{activeRegistrationCount} active participants checked in.
+                {activeRegistrationCount}
+                {tournament.max_players ? `/${tournament.max_players}` : ""} players registered.
               </p>
             </div>
-            <Link className="button secondary-button button-link" href={`/tournaments/${tournament.id}/edit`}>
-              Edit Tournament
-            </Link>
+            {ownCheckIn ? <span className="badge status-badge status-badge-gold">Checked In</span> : null}
           </div>
+
+          <div className="role-actions player-action-row">
+            {!user ? (
+              <Link className="button button-link" href={`/auth?redirectTo=/tournaments/${tournament.id}`}>
+                Sign In To Register
+              </Link>
+            ) : canRegister ? (
+              <button
+                className="button"
+                disabled={savingAction === "register"}
+                type="button"
+                onClick={registerForTournament}
+              >
+                {savingAction === "register" ? "Registering..." : "Register"}
+              </button>
+            ) : canWithdraw ? (
+              <button
+                className="button secondary-button"
+                disabled={savingAction === "withdraw"}
+                type="button"
+                onClick={withdrawFromTournament}
+              >
+                {savingAction === "withdraw" ? "Withdrawing..." : "Withdraw"}
+              </button>
+            ) : (
+              <p className="muted">{registrationBlockedReason}</p>
+            )}
+          </div>
+        </section>
+
+        <section className="card">
+          <div className="section-heading">
+            <div>
+              <h2>Check-In</h2>
+              <p className="muted">
+                {tournament.status === "check_in"
+                  ? "Check-in is open for registered players."
+                  : `Check-in is not open. Current status: ${tournamentStatusLabels[tournament.status]}.`}
+              </p>
+            </div>
+          </div>
+
+          {!user ? (
+            <p className="muted">Sign in to check in after registration is locked.</p>
+          ) : ownCheckIn ? (
+            <p className="notice">You checked in at {formatDateTime(ownCheckIn.checked_in_at)}.</p>
+          ) : canCheckIn ? (
+            <button
+              className="button"
+              disabled={savingAction === "check-in"}
+              type="button"
+              onClick={checkInForTournament}
+            >
+              {savingAction === "check-in" ? "Checking in..." : "Check In"}
+            </button>
+          ) : !isActiveRegistration(registration) ? (
+            <p className="muted">You must be registered for this tournament before you can check in.</p>
+          ) : (
+            <p className="muted">Check-in opens after tournament staff move the event to check-in.</p>
+          )}
+        </section>
+
+        <section className="card">
+          <div className="section-heading">
+            <div>
+              <h2>Players</h2>
+              <p className="muted">Check-in state is shown when visible to your account.</p>
+            </div>
+          </div>
+          <div className="participant-list">
+            {participants.length === 0 ? (
+              <p className="muted">No registered participants yet.</p>
+            ) : (
+              participants.map((participant) => (
+                <article className="participant-row" key={participant.registrationId}>
+                  <div>
+                    <strong>{participant.displayName}</strong>
+                    <p className="muted">
+                      {participant.checkIn
+                        ? `Checked in ${formatDateTime(participant.checkIn.checked_in_at)}`
+                        : "Registered"}
+                    </p>
+                  </div>
+                  <div className="role-actions">
+                    <span className="badge">
+                      {participant.checkIn ? "Checked In" : "Registered"}
+                    </span>
+                    {canManageTournament && participant.checkIn ? (
+                      <button
+                        className="button secondary-button"
+                        disabled={savingAction === "manual-uncheck" || hasGeneratedBracket}
+                        type="button"
+                        onClick={() => manualUncheck(participant)}
+                      >
+                        Remove Check-In
+                      </button>
+                    ) : null}
+                    {canManageTournament && !participant.checkIn ? (
+                      <button
+                        className="button secondary-button"
+                        disabled={
+                          savingAction === "manual-check-in" ||
+                          hasGeneratedBracket ||
+                          tournament.status !== "check_in"
+                        }
+                        type="button"
+                        onClick={() => manualCheckIn(participant)}
+                      >
+                        Mark Checked In
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+      </TournamentPanel>
+
+      <TournamentPanel active={selectedTab === "bracket"} id="bracket">
+        <section className="card bracket-card-shell">
+          <TournamentBracket
+            championName={championName}
+            matchesByRound={matchesByRound}
+            profiles={profileMap}
+          />
+        </section>
+      </TournamentPanel>
+
+      <TournamentPanel active={selectedTab === "matches"} id="matches">
+        <section className="card">
+          <div className="section-heading">
+            <div>
+              <h2>Matches</h2>
+              <p className="muted">List view for scanning status, players, results, and playable match rooms.</p>
+            </div>
+          </div>
+          <div className="search-row">
+            <label htmlFor="match-search">
+              Search matches
+              <input
+                id="match-search"
+                placeholder="Player, round, status, or match number"
+                value={matchSearch}
+                onChange={(event) => setMatchSearch(event.target.value)}
+              />
+            </label>
+          </div>
+
+          {visibleMatchesByRound.length === 0 ? (
+            <p className="muted">No matches found.</p>
+          ) : (
+            <div className="bracket-rounds">
+              {visibleMatchesByRound.map(({ round, matches: roundMatches }) => (
+                <section className="bracket-round" key={round.id}>
+                  <div className="section-heading">
+                    <h3>{round.name}</h3>
+                    <span className="badge">{matchFormatLabels[round.match_format]}</span>
+                  </div>
+                  <div className="match-list">
+                    {roundMatches.map((match) => {
+                      const shouldLinkMatch = isPlayableMatch(match);
+                      const nonPlayableMessage = getNonPlayableMatchMessage(match, profileMap);
+
+                      return (
+                        <article className="match-row" key={match.id}>
+                          <div>
+                            <strong>Match {match.match_number ?? match.bracket_position}</strong>
+                            <p className="muted">
+                              {describeMatchSlot(
+                                match.player_one_id,
+                                profileMap,
+                                match.player_one_seed,
+                                getMatchSlotFallback(match, "one"),
+                              )}{" "}
+                              vs{" "}
+                              {describeMatchSlot(
+                                match.player_two_id,
+                                profileMap,
+                                match.player_two_seed,
+                                getMatchSlotFallback(match, "two"),
+                              )}
+                            </p>
+                            {nonPlayableMessage ? (
+                              <p className="muted">{nonPlayableMessage}</p>
+                            ) : match.winner_id ? (
+                              <p className="notice">
+                                Winner: {getProfileName(profileMap, match.winner_id) ?? "Player"}
+                              </p>
+                            ) : match.status === "disputed" || match.status === "needs_admin" ? (
+                              <p className="error">Organizer review required.</p>
+                            ) : match.status === "result_reported" ? (
+                              <p className="muted">Result reports pending confirmation.</p>
+                            ) : null}
+                          </div>
+                          <div className="role-actions">
+                            <span className="badge">{matchFormatLabels[match.format]}</span>
+                            <MatchStatusBadge tone={getMatchStatusTone(match)}>
+                              {matchStatusLabels[match.status]}
+                            </MatchStatusBadge>
+                            {shouldLinkMatch ? (
+                              <Link
+                                className="button secondary-button button-link"
+                                href={`/matches/${match.id}`}
+                              >
+                                Match Room
+                              </Link>
+                            ) : (
+                              <span className="muted">No room action</span>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </section>
+      </TournamentPanel>
+
+      <TournamentPanel active={selectedTab === "rules"} id="rules">
+        <section className="card">
+          <h2>Rules</h2>
+          {tournament.rules ? (
+            <p className="pre-line">{tournament.rules}</p>
+          ) : (
+            <p className="muted">No rules posted yet.</p>
+          )}
+          {tournament.external_community_url ? (
+            <p>
+              <a href={tournament.external_community_url} rel="noreferrer" target="_blank">
+                Community link
+              </a>
+            </p>
+          ) : null}
+        </section>
+        <section className="grid">
+          <div className="card">
+            <h2>Format</h2>
+            <p>{tournamentFormatLabels[tournament.tournament_format]}</p>
+            <p className="muted">Generated brackets use stored round formats when available.</p>
+          </div>
+          <div className="card">
+            <h2>Match Format</h2>
+            <p>{matchFormatLabels[tournament.format]}</p>
+            <p className="muted">Players use assigned match rooms for lobby setup and result reporting.</p>
+          </div>
+        </section>
+      </TournamentPanel>
+
+      {canManageTournament ? (
+        <TournamentPanel active={selectedTab === "admin"} id="admin">
+          <section className="card">
+            <div className="section-heading">
+              <div>
+                <h2>Organizer/Admin</h2>
+                <p className="muted">
+                  {checkedInParticipants.length}/{activeRegistrationCount} active participants checked in.
+                </p>
+              </div>
+              <Link className="button secondary-button button-link" href={`/tournaments/${tournament.id}/edit`}>
+                Edit Tournament
+              </Link>
+            </div>
 
           {roles.isAdmin ? (
             <div className="management-actions">
@@ -1689,60 +2065,6 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               </div>
             </div>
           ) : null}
-
-          <div className="management-actions">
-            <div>
-              <h3>Participant Check-In</h3>
-              <p className="muted">Manually include or remove registered players during check-in.</p>
-            </div>
-          </div>
-
-          <div className="participant-list">
-            {participants.length === 0 ? (
-              <p className="muted">No registered participants yet.</p>
-            ) : (
-              participants.map((participant) => (
-                <article className="participant-row" key={participant.registrationId}>
-                  <div>
-                    <strong>{participant.displayName}</strong>
-                    <p className="muted">
-                      {participant.checkIn
-                        ? `Checked in ${formatDateTime(participant.checkIn.checked_in_at)}`
-                        : "Not checked in"}
-                    </p>
-                  </div>
-                  <div className="role-actions">
-                    <span className="badge">
-                      {participant.checkIn ? "Checked In" : "Missing"}
-                    </span>
-                    {participant.checkIn ? (
-                      <button
-                        className="button secondary-button"
-                        disabled={savingAction === "manual-uncheck" || hasGeneratedBracket}
-                        type="button"
-                        onClick={() => manualUncheck(participant)}
-                      >
-                        Remove
-                      </button>
-                    ) : (
-                      <button
-                        className="button secondary-button"
-                        disabled={
-                          savingAction === "manual-check-in" ||
-                          hasGeneratedBracket ||
-                          tournament.status !== "check_in"
-                        }
-                        type="button"
-                        onClick={() => manualCheckIn(participant)}
-                      >
-                        Mark Checked In
-                      </button>
-                    )}
-                  </div>
-                </article>
-              ))
-            )}
-          </div>
 
           <div className="management-actions">
             <div>
@@ -1913,7 +2235,8 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                   : "Delete Tournament"}
             </button>
           </div>
-        </section>
+          </section>
+        </TournamentPanel>
       ) : null}
     </>
   );

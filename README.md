@@ -117,7 +117,9 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 
 - Organizers and admins can edit tournament details from `/tournaments/[id]/edit`.
 - Editable fields include title, description, scheduled start time, registration close time, max participants, tournament format, match format, rules, external community link, and status.
-- Tournament detail pages include a management panel for staff with edit, event-flow, cancel, delete, and participant count controls.
+- Tournament detail pages use compact tabs for Overview, Players, Bracket, Matches, Rules, and staff-only Organizer/Admin controls.
+- The Bracket tab renders generated single-elimination rounds as horizontal columns with fixed-size match cards, increasing per-round vertical spacing, subtle connector lines, BYE/TBD structural cards, playable match-room links only for real matches, and a champion card when a completed winner is known.
+- Staff event-flow, bracket setup/reset, cancel, delete, and admin override controls live in the Organizer/Admin tab.
 - Normal organizer start requires status `check_in`, a generated bracket size that can hold the field, and at least 2 checked-in players.
 - Generating the bracket also starts the tournament by moving status to `active`.
 - Cancel sets the tournament status to `cancelled`, keeps the tournament visible in history, and prevents new registration.

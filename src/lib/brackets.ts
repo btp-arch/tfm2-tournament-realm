@@ -113,7 +113,12 @@ function getSeedOrder(size: number): number[] {
 
   const previous = getSeedOrder(size / 2);
 
-  return previous.flatMap((seed) => [seed, size + 1 - seed]);
+  // Preserve each existing seed's top/bottom slot while adding its mirrored opponent.
+  return previous.flatMap((seed, index) => {
+    const pairedSeed = size + 1 - seed;
+
+    return index % 2 === 0 ? [seed, pairedSeed] : [pairedSeed, seed];
+  });
 }
 
 export function generateSingleEliminationMatches(
