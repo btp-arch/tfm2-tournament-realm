@@ -1221,31 +1221,40 @@ export type Database = {
       tournament_rounds: {
         Row: {
           created_at: string
+          deadline_at: string | null
           id: string
           match_format: Database["public"]["Enums"]["match_format"]
           name: string
           round_number: number
           stage_id: string
+          timer_started_at: string | null
+          timing_state: string
           tournament_id: string
           updated_at: string
         }
         Insert: {
           created_at?: string
+          deadline_at?: string | null
           id?: string
           match_format: Database["public"]["Enums"]["match_format"]
           name: string
           round_number: number
           stage_id: string
+          timer_started_at?: string | null
+          timing_state?: string
           tournament_id: string
           updated_at?: string
         }
         Update: {
           created_at?: string
+          deadline_at?: string | null
           id?: string
           match_format?: Database["public"]["Enums"]["match_format"]
           name?: string
           round_number?: number
           stage_id?: string
+          timer_started_at?: string | null
+          timing_state?: string
           tournament_id?: string
           updated_at?: string
         }
@@ -1329,17 +1338,30 @@ export type Database = {
       }
       tournaments: {
         Row: {
+          auto_apply_timer_outcomes: boolean
+          auto_open_ready_matches: boolean
+          bracket_bo1_round_minutes: number
+          bracket_bo3_round_minutes: number
+          bracket_bo5_round_minutes: number
+          check_in_window_minutes: number
           created_at: string
           created_by: string
+          current_bracket_round_deadline: string | null
+          current_check_in_deadline: string | null
+          current_group_round_deadline: string | null
+          current_replacement_deadline: string | null
           description: string | null
           exclude_from_stats: boolean
           external_community_url: string | null
           final_match_format: Database["public"]["Enums"]["match_format"]
           format: Database["public"]["Enums"]["match_format"]
+          group_bo1_round_minutes: number
+          group_bo3_round_minutes: number
           group_size: number | null
           group_stage_format: Database["public"]["Enums"]["match_format"] | null
           groups_count: number | null
           id: string
+          independent_group_progression: boolean
           max_players: number | null
           name: string
           official_marked_at: string | null
@@ -1347,30 +1369,49 @@ export type Database = {
           pre_semifinal_match_format: Database["public"]["Enums"]["match_format"]
           qualifiers_per_group: number | null
           registration_closes_at: string | null
+          replacement_window_enabled: boolean
+          replacement_window_minutes: number
           rules: string | null
           semifinal_match_format: Database["public"]["Enums"]["match_format"]
           show_on_calendar: boolean
           slug: string
           starts_at: string | null
           status: Database["public"]["Enums"]["tournament_status"]
+          timers_paused_at: string | null
+          timing_note: string | null
+          timing_state: string
+          total_paused_seconds: number
           tournament_format: Database["public"]["Enums"]["tournament_format"]
           tournament_tier: Database["public"]["Enums"]["tournament_tier"]
           updated_at: string
         }
         Insert: {
+          auto_apply_timer_outcomes?: boolean
+          auto_open_ready_matches?: boolean
+          bracket_bo1_round_minutes?: number
+          bracket_bo3_round_minutes?: number
+          bracket_bo5_round_minutes?: number
+          check_in_window_minutes?: number
           created_at?: string
           created_by: string
+          current_bracket_round_deadline?: string | null
+          current_check_in_deadline?: string | null
+          current_group_round_deadline?: string | null
+          current_replacement_deadline?: string | null
           description?: string | null
           exclude_from_stats?: boolean
           external_community_url?: string | null
           final_match_format?: Database["public"]["Enums"]["match_format"]
           format?: Database["public"]["Enums"]["match_format"]
+          group_bo1_round_minutes?: number
+          group_bo3_round_minutes?: number
           group_size?: number | null
           group_stage_format?:
             | Database["public"]["Enums"]["match_format"]
             | null
           groups_count?: number | null
           id?: string
+          independent_group_progression?: boolean
           max_players?: number | null
           name: string
           official_marked_at?: string | null
@@ -1378,30 +1419,49 @@ export type Database = {
           pre_semifinal_match_format?: Database["public"]["Enums"]["match_format"]
           qualifiers_per_group?: number | null
           registration_closes_at?: string | null
+          replacement_window_enabled?: boolean
+          replacement_window_minutes?: number
           rules?: string | null
           semifinal_match_format?: Database["public"]["Enums"]["match_format"]
           show_on_calendar?: boolean
           slug: string
           starts_at?: string | null
           status?: Database["public"]["Enums"]["tournament_status"]
+          timers_paused_at?: string | null
+          timing_note?: string | null
+          timing_state?: string
+          total_paused_seconds?: number
           tournament_format?: Database["public"]["Enums"]["tournament_format"]
           tournament_tier?: Database["public"]["Enums"]["tournament_tier"]
           updated_at?: string
         }
         Update: {
+          auto_apply_timer_outcomes?: boolean
+          auto_open_ready_matches?: boolean
+          bracket_bo1_round_minutes?: number
+          bracket_bo3_round_minutes?: number
+          bracket_bo5_round_minutes?: number
+          check_in_window_minutes?: number
           created_at?: string
           created_by?: string
+          current_bracket_round_deadline?: string | null
+          current_check_in_deadline?: string | null
+          current_group_round_deadline?: string | null
+          current_replacement_deadline?: string | null
           description?: string | null
           exclude_from_stats?: boolean
           external_community_url?: string | null
           final_match_format?: Database["public"]["Enums"]["match_format"]
           format?: Database["public"]["Enums"]["match_format"]
+          group_bo1_round_minutes?: number
+          group_bo3_round_minutes?: number
           group_size?: number | null
           group_stage_format?:
             | Database["public"]["Enums"]["match_format"]
             | null
           groups_count?: number | null
           id?: string
+          independent_group_progression?: boolean
           max_players?: number | null
           name?: string
           official_marked_at?: string | null
@@ -1409,12 +1469,18 @@ export type Database = {
           pre_semifinal_match_format?: Database["public"]["Enums"]["match_format"]
           qualifiers_per_group?: number | null
           registration_closes_at?: string | null
+          replacement_window_enabled?: boolean
+          replacement_window_minutes?: number
           rules?: string | null
           semifinal_match_format?: Database["public"]["Enums"]["match_format"]
           show_on_calendar?: boolean
           slug?: string
           starts_at?: string | null
           status?: Database["public"]["Enums"]["tournament_status"]
+          timers_paused_at?: string | null
+          timing_note?: string | null
+          timing_state?: string
+          total_paused_seconds?: number
           tournament_format?: Database["public"]["Enums"]["tournament_format"]
           tournament_tier?: Database["public"]["Enums"]["tournament_tier"]
           updated_at?: string
@@ -2177,17 +2243,30 @@ export type Database = {
       set_tournament_calendar_visibility: {
         Args: { target_tournament: string; visible: boolean }
         Returns: {
+          auto_apply_timer_outcomes: boolean
+          auto_open_ready_matches: boolean
+          bracket_bo1_round_minutes: number
+          bracket_bo3_round_minutes: number
+          bracket_bo5_round_minutes: number
+          check_in_window_minutes: number
           created_at: string
           created_by: string
+          current_bracket_round_deadline: string | null
+          current_check_in_deadline: string | null
+          current_group_round_deadline: string | null
+          current_replacement_deadline: string | null
           description: string | null
           exclude_from_stats: boolean
           external_community_url: string | null
           final_match_format: Database["public"]["Enums"]["match_format"]
           format: Database["public"]["Enums"]["match_format"]
+          group_bo1_round_minutes: number
+          group_bo3_round_minutes: number
           group_size: number | null
           group_stage_format: Database["public"]["Enums"]["match_format"] | null
           groups_count: number | null
           id: string
+          independent_group_progression: boolean
           max_players: number | null
           name: string
           official_marked_at: string | null
@@ -2195,12 +2274,18 @@ export type Database = {
           pre_semifinal_match_format: Database["public"]["Enums"]["match_format"]
           qualifiers_per_group: number | null
           registration_closes_at: string | null
+          replacement_window_enabled: boolean
+          replacement_window_minutes: number
           rules: string | null
           semifinal_match_format: Database["public"]["Enums"]["match_format"]
           show_on_calendar: boolean
           slug: string
           starts_at: string | null
           status: Database["public"]["Enums"]["tournament_status"]
+          timers_paused_at: string | null
+          timing_note: string | null
+          timing_state: string
+          total_paused_seconds: number
           tournament_format: Database["public"]["Enums"]["tournament_format"]
           tournament_tier: Database["public"]["Enums"]["tournament_tier"]
           updated_at: string
@@ -2219,17 +2304,30 @@ export type Database = {
           tier: Database["public"]["Enums"]["tournament_tier"]
         }
         Returns: {
+          auto_apply_timer_outcomes: boolean
+          auto_open_ready_matches: boolean
+          bracket_bo1_round_minutes: number
+          bracket_bo3_round_minutes: number
+          bracket_bo5_round_minutes: number
+          check_in_window_minutes: number
           created_at: string
           created_by: string
+          current_bracket_round_deadline: string | null
+          current_check_in_deadline: string | null
+          current_group_round_deadline: string | null
+          current_replacement_deadline: string | null
           description: string | null
           exclude_from_stats: boolean
           external_community_url: string | null
           final_match_format: Database["public"]["Enums"]["match_format"]
           format: Database["public"]["Enums"]["match_format"]
+          group_bo1_round_minutes: number
+          group_bo3_round_minutes: number
           group_size: number | null
           group_stage_format: Database["public"]["Enums"]["match_format"] | null
           groups_count: number | null
           id: string
+          independent_group_progression: boolean
           max_players: number | null
           name: string
           official_marked_at: string | null
@@ -2237,12 +2335,18 @@ export type Database = {
           pre_semifinal_match_format: Database["public"]["Enums"]["match_format"]
           qualifiers_per_group: number | null
           registration_closes_at: string | null
+          replacement_window_enabled: boolean
+          replacement_window_minutes: number
           rules: string | null
           semifinal_match_format: Database["public"]["Enums"]["match_format"]
           show_on_calendar: boolean
           slug: string
           starts_at: string | null
           status: Database["public"]["Enums"]["tournament_status"]
+          timers_paused_at: string | null
+          timing_note: string | null
+          timing_state: string
+          total_paused_seconds: number
           tournament_format: Database["public"]["Enums"]["tournament_format"]
           tournament_tier: Database["public"]["Enums"]["tournament_tier"]
           updated_at: string
@@ -2255,7 +2359,7 @@ export type Database = {
         }
       }
       set_tournament_registration_seed: {
-        Args: { seed_value: number | null; target_registration: string }
+        Args: { seed_value: number; target_registration: string }
         Returns: {
           created_at: string
           id: string

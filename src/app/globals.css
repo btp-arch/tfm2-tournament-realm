@@ -327,6 +327,34 @@ textarea {
   gap: 1rem;
 }
 
+.form-section {
+  display: grid;
+  gap: 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+.form-section h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.checkbox-label {
+  display: flex !important;
+  grid-template-columns: none !important;
+  gap: .65rem !important;
+  align-items: center;
+}
+
+.checkbox-label input {
+  width: auto;
+}
+
+.countdown-line {
+  display: grid;
+  gap: .25rem;
+}
+
 .button,
 .segmented-control button {
   border: 1px solid #6f9bd2;

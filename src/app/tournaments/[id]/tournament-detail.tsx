@@ -64,6 +64,25 @@ import {
 import { ensureProfile } from "@/lib/profiles";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
+import { updateTournamentRegistrationSeed } from "@/lib/tournament-registration-seeds";
+import {
+  canExtendTournamentWindow,
+  canPauseTournamentTimers,
+  createDeadlinePatch,
+  extendTournamentWindow,
+  forceCloseTournamentWindow,
+  generateTournamentTimingRulesText,
+  getCountdownLabel,
+  getCurrentTournamentTimingState,
+  getRoundDurationForFormat,
+  getStatusTimingPatch,
+  getTimingWindowLabel,
+  normalizeTournamentTimingSettings,
+  pauseTournamentTimers,
+  resumeTournamentTimers,
+  type TournamentTimingControlPatch,
+  type TournamentTimingWindow,
+} from "@/lib/tournament-timing";
 import {
   canRegisterForTournament,
   canWithdrawFromTournament,
@@ -134,6 +153,7 @@ type SavingAction =
   | "clear-qualifiers"
   | "admin-force-check-in"
   | "admin-force-start"
+  | "timing"
   | "reset"
   | "activate"
   | null;
@@ -603,6 +623,15 @@ function LiveMetricCard({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+function TimingDeadline({ deadline, paused }: { deadline: Date | null; paused: boolean }) {
+  return (
+    <>
+      <strong>{getCountdownLabel(deadline, paused)}</strong>
+      <span className="muted">{deadline ? formatDateTime(deadline.toISOString()) : "No deadline set"}</span>
+    </>
+  );
+}
+
 function LiveAttentionRows({
   emptyMessage,
   items,
@@ -981,6 +1010,14 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
 
     return roles.isAdmin || tournament.created_by === user.id || isManagedByUser;
   }, [isManagedByUser, roles.isAdmin, tournament, user]);
+  const canControlTiming = Boolean(
+    tournament &&
+      canPauseTournamentTimers(tournament, roles, user?.id ?? null, isManagedByUser),
+  );
+  const canExtendTiming = Boolean(
+    tournament &&
+      canExtendTournamentWindow(tournament, roles, user?.id ?? null, isManagedByUser),
+  );
 
   const registeredParticipants = useMemo(() => {
     return participants.filter(isEligibleParticipant);
@@ -991,6 +1028,13 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   }, [registeredParticipants]);
 
   const isGroupStageTournament = tournament?.tournament_format === "group_stage_playoff";
+  const timingSettings = tournament ? normalizeTournamentTimingSettings(tournament) : null;
+  const timingState = tournament
+    ? getCurrentTournamentTimingState(tournament, Boolean(isGroupStageTournament))
+    : null;
+  const generatedTimingRules = tournament
+    ? generateTournamentTimingRulesText(tournament)
+    : "";
   const groupStage = useMemo(
     () => stages.find((stage) => stage.bracket_type === "group_stage_playoff") ?? null,
     [stages],
@@ -1346,6 +1390,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         .update({
           status,
           updated_at: new Date().toISOString(),
+          ...getStatusTimingPatch(tournament, status),
         })
         .eq("id", tournament.id);
 
@@ -1366,6 +1411,88 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
 
   async function updateTournamentStatus() {
     await updateTournamentStatusTo(selectedStatus, "Tournament status updated.");
+  }
+
+  async function updateTournamentTiming(
+    patch: TournamentTimingControlPatch,
+    successMessage: string,
+  ) {
+    if (!tournament || !canControlTiming) {
+      return;
+    }
+
+    setSavingAction("timing");
+    setNotice(null);
+    setError(null);
+
+    try {
+      const { error: updateError } = await supabase
+        .from("tournaments")
+        .update({
+          ...patch,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tournament.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setNotice(successMessage);
+      await loadTournament();
+      router.refresh();
+    } catch (caughtError) {
+      logError("Tournament timing update failed.", caughtError);
+      setError(formatError(caughtError, "Unable to update tournament timing."));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  async function pauseTimers() {
+    if (!tournament || tournament.timers_paused_at) {
+      return;
+    }
+
+    await updateTournamentTiming(pauseTournamentTimers(), "Tournament timers paused.");
+  }
+
+  async function resumeTimers() {
+    if (!tournament || !tournament.timers_paused_at) {
+      return;
+    }
+
+    await updateTournamentTiming(resumeTournamentTimers(tournament), "Tournament timers resumed.");
+  }
+
+  async function extendTimingWindow(timingWindow: TournamentTimingWindow, minutes: number) {
+    if (!tournament || !canExtendTiming) {
+      return;
+    }
+
+    await updateTournamentTiming(
+      extendTournamentWindow(tournament, timingWindow, minutes),
+      `${getTimingWindowLabel(timingWindow)} extended by ${minutes} minutes.`,
+    );
+  }
+
+  async function forceCloseTimingWindow(timingWindow: TournamentTimingWindow) {
+    if (!tournament || !canExtendTiming) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Force close the ${getTimingWindowLabel(timingWindow).toLowerCase()} timer? This only marks the timer expired; it will not resolve matches automatically.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    await updateTournamentTiming(
+      forceCloseTournamentWindow(timingWindow),
+      `${getTimingWindowLabel(timingWindow)} marked expired.`,
+    );
   }
 
   async function manualCheckIn(participant: Participant) {
@@ -1451,9 +1578,9 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     setError(null);
 
     try {
-      const { error: rpcError } = await supabase.rpc("set_tournament_registration_seed", {
-        seed_value: manualSeed,
-        target_registration: participant.registrationId,
+      const { error: rpcError } = await updateTournamentRegistrationSeed(supabase, {
+        seedValue: manualSeed,
+        targetRegistration: participant.registrationId,
       });
 
       if (rpcError) {
@@ -1536,16 +1663,25 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       }
 
       createdStageId = stage.id;
+      const bracketTimerStartedAt = new Date();
+      const firstBracketRoundDeadline = new Date(
+        bracketTimerStartedAt.getTime() +
+          getRoundDurationForFormat(roundFormats[0] ?? tournament.pre_semifinal_match_format, "bracket", tournament) *
+            60_000,
+      ).toISOString();
 
       const { data: createdRounds, error: roundsError } = await supabase
         .from("tournament_rounds")
         .insert(
           roundFormats.map((format, index) => ({
+            deadline_at: index === 0 ? firstBracketRoundDeadline : null,
             tournament_id: tournament.id,
             stage_id: stage.id,
             round_number: index + 1,
             name: getRoundName(selectedBracketSize, index + 1),
             match_format: format,
+            timer_started_at: index === 0 ? bracketTimerStartedAt.toISOString() : null,
+            timing_state: index === 0 ? "active" : "idle",
           })),
         )
         .select();
@@ -1592,6 +1728,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         .update({
           status: "active",
           updated_at: new Date().toISOString(),
+          ...getStatusTimingPatch(tournament, "active"),
         })
         .eq("id", tournament.id);
 
@@ -1686,6 +1823,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             .update({
               status: "check_in",
               updated_at: new Date().toISOString(),
+              ...getStatusTimingPatch(tournament, "check_in"),
             })
             .eq("id", tournament.id);
 
@@ -1861,15 +1999,24 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       }
 
       createdStageId = stage.id;
+      const groupTimerStartedAt = new Date();
+      const groupRoundDeadline = new Date(
+        groupTimerStartedAt.getTime() +
+          getRoundDurationForFormat(tournament.group_stage_format ?? "bo1", "group", tournament) *
+            60_000,
+      ).toISOString();
 
       const { data: createdRound, error: roundError } = await supabase
         .from("tournament_rounds")
         .insert({
+          deadline_at: groupRoundDeadline,
           tournament_id: tournament.id,
           stage_id: stage.id,
           round_number: 1,
           name: "Group Round Robin",
           match_format: tournament.group_stage_format,
+          timer_started_at: groupTimerStartedAt.toISOString(),
+          timing_state: "active",
         })
         .select()
         .single();
@@ -2007,16 +2154,29 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           }
 
           createdPlayoffStageId = playoffStage.id;
+          const playoffTimerStartedAt = new Date();
+          const firstPlayoffRoundDeadline = new Date(
+            playoffTimerStartedAt.getTime() +
+              getRoundDurationForFormat(
+                playoffRoundFormats[0] ?? tournament.pre_semifinal_match_format,
+                "bracket",
+                tournament,
+              ) *
+                60_000,
+          ).toISOString();
 
           const { data: createdPlayoffRounds, error: playoffRoundsError } = await supabase
             .from("tournament_rounds")
             .insert(
               playoffRoundFormats.map((format, index) => ({
+                deadline_at: index === 0 ? firstPlayoffRoundDeadline : null,
                 tournament_id: tournament.id,
                 stage_id: playoffStage.id,
                 round_number: index + 1,
                 name: getRoundName(playoffBracketSize, index + 1),
                 match_format: format,
+                timer_started_at: index === 0 ? playoffTimerStartedAt.toISOString() : null,
+                timing_state: index === 0 ? "active" : "idle",
               })),
             )
             .select();
@@ -2071,6 +2231,13 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         .update({
           status: "active",
           updated_at: new Date().toISOString(),
+          ...createDeadlinePatch(
+            tournament,
+            noMatchPlayoffGenerated ? "bracket_round" : "group_round",
+            noMatchPlayoffGenerated
+              ? getRoundDurationForFormat(tournament.pre_semifinal_match_format, "bracket", tournament)
+              : getRoundDurationForFormat(tournament.group_stage_format ?? "bo1", "group", tournament),
+          ),
         })
         .eq("id", tournament.id);
 
@@ -2575,6 +2742,25 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             </p>
                 {championName ? <p className="winner-line">Winner: {championName}</p> : null}
           </div>
+
+          {timingState && timingSettings ? (
+            <div className="card">
+              <h2>Timing</h2>
+              <p className={timingState.isExpired ? "error" : timingState.isPaused ? "notice" : undefined}>
+                {timingState.label}
+              </p>
+              <p className="countdown-line">
+                <TimingDeadline deadline={timingState.deadline} paused={timingState.isPaused} />
+              </p>
+              <p className="muted">{timingState.nextAction}</p>
+              <p className="muted">
+                Check-in {timingSettings.checkInWindowMinutes}m
+                {timingSettings.replacementWindowEnabled
+                  ? `, replacement ${timingSettings.replacementWindowMinutes}m`
+                  : ", replacements off"}
+              </p>
+            </div>
+          ) : null}
         </section>
 
         {tournament.description ? (
@@ -2637,8 +2823,128 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               <LiveMetricCard label="Completed Matches" value={liveSummary.completedMatchCount} />
               <LiveMetricCard label="Disputes" value={liveSummary.disputeCount} />
               <LiveMetricCard label="Mismatches" value={liveSummary.resultMismatchCount} />
+              {timingState ? (
+                <LiveMetricCard
+                  label="Timer"
+                  value={
+                    timingState.isPaused
+                      ? "Paused"
+                      : timingState.isExpired
+                        ? "Expired"
+                        : timingState.activeWindow
+                          ? getTimingWindowLabel(timingState.activeWindow)
+                          : "Idle"
+                  }
+                />
+              ) : null}
             </div>
           </section>
+
+          {timingState && timingSettings ? (
+            <section className="card">
+              <div className="section-heading compact-heading">
+                <div>
+                  <h2>Timing Control</h2>
+                  <p className={timingState.isExpired ? "error" : timingState.isPaused ? "notice" : "muted"}>
+                    {timingState.nextAction}
+                  </p>
+                </div>
+                <MatchStatusBadge tone={timingState.isExpired ? "danger" : timingState.isPaused ? "gold" : "muted"}>
+                  {timingState.isPaused ? "Paused" : timingState.isExpired ? "Action Needed" : "Running"}
+                </MatchStatusBadge>
+              </div>
+
+              <div className="live-metric-grid">
+                <LiveMetricCard label="Current Window" value={timingState.label} />
+                <LiveMetricCard
+                  label="Deadline"
+                  value={<TimingDeadline deadline={timingState.deadline} paused={timingState.isPaused} />}
+                />
+                <LiveMetricCard label="Check-In" value={`${timingSettings.checkInWindowMinutes}m`} />
+                <LiveMetricCard
+                  label="Replacement"
+                  value={
+                    timingSettings.replacementWindowEnabled
+                      ? `${timingSettings.replacementWindowMinutes}m`
+                      : "Off"
+                  }
+                />
+                {isGroupStageTournament ? (
+                  <>
+                    <LiveMetricCard label="Group BO1" value={`${timingSettings.groupBo1RoundMinutes}m`} />
+                    <LiveMetricCard label="Group BO3" value={`${timingSettings.groupBo3RoundMinutes}m`} />
+                  </>
+                ) : null}
+                <LiveMetricCard label="Bracket BO1" value={`${timingSettings.bracketBo1RoundMinutes}m`} />
+                <LiveMetricCard label="Bracket BO3" value={`${timingSettings.bracketBo3RoundMinutes}m`} />
+                <LiveMetricCard label="Bracket BO5" value={`${timingSettings.bracketBo5RoundMinutes}m`} />
+              </div>
+
+              <div className="management-actions">
+                <div>
+                  <h3>Pause / Resume</h3>
+                  <p className="muted">
+                    Pausing stops displayed expiry and resume shifts stored deadlines by the paused duration.
+                  </p>
+                  {tournament.timing_note ? <p className="muted">Last note: {tournament.timing_note}</p> : null}
+                </div>
+                <div className="role-actions">
+                  <button
+                    className="button secondary-button"
+                    disabled={!canControlTiming || savingAction === "timing" || Boolean(tournament.timers_paused_at)}
+                    type="button"
+                    onClick={pauseTimers}
+                  >
+                    Pause Timers
+                  </button>
+                  <button
+                    className="button"
+                    disabled={!canControlTiming || savingAction === "timing" || !tournament.timers_paused_at}
+                    type="button"
+                    onClick={resumeTimers}
+                  >
+                    Resume Timers
+                  </button>
+                </div>
+              </div>
+
+              {timingState.activeWindow ? (
+                <div className="management-actions">
+                  <div>
+                    <h3>{getTimingWindowLabel(timingState.activeWindow)} Controls</h3>
+                    <p className="muted">
+                      Extensions update the current deadline only. Force close marks the timer expired without resolving matches or advancing players.
+                    </p>
+                  </div>
+                  <div className="role-actions">
+                    {[5, 10, 15].map((minutes) => (
+                      <button
+                        className="button secondary-button"
+                        disabled={!canExtendTiming || savingAction === "timing"}
+                        key={minutes}
+                        type="button"
+                        onClick={() => extendTimingWindow(timingState.activeWindow!, minutes)}
+                      >
+                        +{minutes}m
+                      </button>
+                    ))}
+                    <button
+                      className="button danger-button"
+                      disabled={!canExtendTiming || savingAction === "timing"}
+                      type="button"
+                      onClick={() => forceCloseTimingWindow(timingState.activeWindow!)}
+                    >
+                      Force Close
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <p className="muted">
+                Auto-apply timer outcomes is {timingSettings.autoApplyTimerOutcomes ? "configured on" : "off"}; this milestone does not automatically forfeit or no-contest overdue matches.
+              </p>
+            </section>
+          ) : null}
 
           <section className="grid live-control-grid">
             <div className="card">
@@ -3331,6 +3637,10 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               </a>
             </p>
           ) : null}
+        </section>
+        <section className="card">
+          <h2>Generated Timing Rules</h2>
+          <p className="pre-line">{generatedTimingRules}</p>
         </section>
         <section className="grid">
           <div className="card">

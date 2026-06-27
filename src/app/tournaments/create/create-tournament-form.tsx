@@ -14,6 +14,14 @@ import { ensureProfile, type Profile } from "@/lib/profiles";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
 import {
+  buildTimingInsertPayload,
+  getDefaultTournamentTimingSettings,
+  maxTournamentTimerMinutes,
+  minTournamentTimerMinutes,
+  validateTournamentTimingSettings,
+  type TournamentTimingSettings,
+} from "@/lib/tournament-timing";
+import {
   buildTournamentSlug,
   groupSizes,
   groupStageMatchFormats,
@@ -47,7 +55,10 @@ type TournamentFormState = {
   rules: string;
   externalCommunityUrl: string;
   status: Extract<TournamentStatus, "draft" | "registration_open">;
+  timing: TournamentTimingSettings;
 };
+
+const defaultTimingSettings = getDefaultTournamentTimingSettings();
 
 const initialFormState: TournamentFormState = {
   title: "",
@@ -66,6 +77,7 @@ const initialFormState: TournamentFormState = {
   rules: "",
   externalCommunityUrl: "",
   status: "draft",
+  timing: defaultTimingSettings,
 };
 
 export function CreateTournamentForm() {
@@ -127,6 +139,19 @@ export function CreateTournamentForm() {
     setFormState((current) => ({ ...current, [field]: value }));
   }
 
+  function updateTimingField<Field extends keyof TournamentTimingSettings>(
+    field: Field,
+    value: TournamentTimingSettings[Field],
+  ) {
+    setFormState((current) => ({
+      ...current,
+      timing: {
+        ...current.timing,
+        [field]: value,
+      },
+    }));
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -177,6 +202,13 @@ export function CreateTournamentForm() {
       }
     }
 
+    const timingValidationError = validateTournamentTimingSettings(formState.timing);
+
+    if (timingValidationError) {
+      setError(timingValidationError);
+      return;
+    }
+
     setIsSaving(true);
     setError(null);
 
@@ -205,6 +237,7 @@ export function CreateTournamentForm() {
           external_community_url: normalizeOptionalText(formState.externalCommunityUrl),
           status: formState.status,
           created_by: user.id,
+          ...buildTimingInsertPayload(formState.timing),
         })
         .select("*")
         .single();
@@ -488,6 +521,175 @@ export function CreateTournamentForm() {
               </p>
             </>
           ) : null}
+
+          <section className="form-section">
+            <div>
+              <h2>Timing Settings</h2>
+              <p className="muted">
+                Timers are displayed to players and controlled manually by tournament staff.
+              </p>
+            </div>
+
+            <div className="form-grid">
+              <label htmlFor="check-in-window-minutes">
+                Check-in window minutes
+                <input
+                  id="check-in-window-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.checkInWindowMinutes}
+                  onChange={(event) =>
+                    updateTimingField("checkInWindowMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+
+              <label htmlFor="replacement-window-minutes">
+                Replacement window minutes
+                <input
+                  id="replacement-window-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.replacementWindowMinutes}
+                  onChange={(event) =>
+                    updateTimingField("replacementWindowMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="form-grid">
+              <label htmlFor="group-bo1-round-minutes">
+                Group BO1 minutes
+                <input
+                  id="group-bo1-round-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.groupBo1RoundMinutes}
+                  onChange={(event) =>
+                    updateTimingField("groupBo1RoundMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+
+              <label htmlFor="group-bo3-round-minutes">
+                Group BO3 minutes
+                <input
+                  id="group-bo3-round-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.groupBo3RoundMinutes}
+                  onChange={(event) =>
+                    updateTimingField("groupBo3RoundMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="form-grid">
+              <label htmlFor="bracket-bo1-round-minutes">
+                Bracket BO1 minutes
+                <input
+                  id="bracket-bo1-round-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.bracketBo1RoundMinutes}
+                  onChange={(event) =>
+                    updateTimingField("bracketBo1RoundMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+
+              <label htmlFor="bracket-bo3-round-minutes">
+                Bracket BO3 minutes
+                <input
+                  id="bracket-bo3-round-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.bracketBo3RoundMinutes}
+                  onChange={(event) =>
+                    updateTimingField("bracketBo3RoundMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+
+              <label htmlFor="bracket-bo5-round-minutes">
+                Bracket BO5 minutes
+                <input
+                  id="bracket-bo5-round-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.bracketBo5RoundMinutes}
+                  onChange={(event) =>
+                    updateTimingField("bracketBo5RoundMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+            </div>
+
+            <label className="checkbox-label" htmlFor="replacement-window-enabled">
+              <input
+                checked={formState.timing.replacementWindowEnabled}
+                id="replacement-window-enabled"
+                type="checkbox"
+                onChange={(event) =>
+                  updateTimingField("replacementWindowEnabled", event.target.checked)
+                }
+              />
+              Allow replacement window
+            </label>
+
+            <label className="checkbox-label" htmlFor="independent-group-progression">
+              <input
+                checked={formState.timing.independentGroupProgression}
+                id="independent-group-progression"
+                type="checkbox"
+                onChange={(event) =>
+                  updateTimingField("independentGroupProgression", event.target.checked)
+                }
+              />
+              Allow independent group progression
+            </label>
+
+            <label className="checkbox-label" htmlFor="auto-open-ready-matches">
+              <input
+                checked={formState.timing.autoOpenReadyMatches}
+                id="auto-open-ready-matches"
+                type="checkbox"
+                onChange={(event) =>
+                  updateTimingField("autoOpenReadyMatches", event.target.checked)
+                }
+              />
+              Auto-open ready matches when both players are known
+            </label>
+
+            <label className="checkbox-label" htmlFor="auto-apply-timer-outcomes">
+              <input
+                checked={formState.timing.autoApplyTimerOutcomes}
+                disabled
+                id="auto-apply-timer-outcomes"
+                type="checkbox"
+                onChange={(event) =>
+                  updateTimingField("autoApplyTimerOutcomes", event.target.checked)
+                }
+              />
+              Auto-apply timer outcomes (planned; kept off)
+            </label>
+          </section>
 
           <label htmlFor="rules">
             Rules

@@ -35,6 +35,15 @@
 - [ ] Consider organizer-facing previews for seeded group draw and bracket placement before generation.
 - [ ] Keep manual seed edits locked after generated matches start unless a safe reset path is available.
 
+## Tournament Timing 10B
+
+- [ ] Add automated overdue-match review only after lazy timing is proven in live tournaments.
+- [ ] If one player checked into the match room and the other did not, let staff apply FF for the checked-in player.
+- [ ] If neither player checked into the match room, let staff mark no contest.
+- [ ] If both players checked in but no result was submitted, route to no contest or organizer review.
+- [ ] If one player submitted a result and the other did not, prefer organizer review rather than automatic win by default.
+- [ ] Add a background worker or Edge Function before claiming timer outcomes happen exactly at deadlines.
+
 ## Profile/Records Follow-Up
 
 - [ ] Add focused tests for record eligibility, BYE exclusion, FF exclusion, no-contest exclusion, and tournament tier rules.

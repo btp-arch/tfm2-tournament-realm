@@ -15,6 +15,15 @@ import { ensureProfile } from "@/lib/profiles";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
 import {
+  buildTimingInsertPayload,
+  canEditTimingSettings,
+  maxTournamentTimerMinutes,
+  minTournamentTimerMinutes,
+  normalizeTournamentTimingSettings,
+  validateTournamentTimingSettings,
+  type TournamentTimingSettings,
+} from "@/lib/tournament-timing";
+import {
   editableTournamentStatuses,
   groupSizes,
   groupStageMatchFormats,
@@ -52,6 +61,7 @@ type TournamentFormState = {
   rules: string;
   externalCommunityUrl: string;
   status: TournamentStatus;
+  timing: TournamentTimingSettings;
 };
 
 type RegistrationCountRow = {
@@ -79,6 +89,7 @@ function toFormState(tournament: TournamentRow): TournamentFormState {
     status: editableTournamentStatuses.includes(tournament.status)
       ? tournament.status
       : "draft",
+    timing: normalizeTournamentTimingSettings(tournament),
   };
 }
 
@@ -178,12 +189,33 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
       tournament &&
       (roles.isAdmin || tournament.created_by === user.id || isManagedByUser),
   );
+  const canEditTiming = Boolean(
+    tournament &&
+      canEditTimingSettings(tournament, roles, user?.id ?? null, isManagedByUser),
+  );
 
   function updateField<Field extends keyof TournamentFormState>(
     field: Field,
     value: TournamentFormState[Field],
   ) {
     setFormState((current) => (current ? { ...current, [field]: value } : current));
+  }
+
+  function updateTimingField<Field extends keyof TournamentTimingSettings>(
+    field: Field,
+    value: TournamentTimingSettings[Field],
+  ) {
+    setFormState((current) =>
+      current
+        ? {
+            ...current,
+            timing: {
+              ...current.timing,
+              [field]: value,
+            },
+          }
+        : current,
+    );
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -258,6 +290,13 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
       }
     }
 
+    const timingValidationError = validateTournamentTimingSettings(formState.timing);
+
+    if (timingValidationError) {
+      setError(timingValidationError);
+      return;
+    }
+
     setIsSaving(true);
     setNotice(null);
     setError(null);
@@ -286,6 +325,7 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
           external_community_url: normalizeOptionalText(formState.externalCommunityUrl),
           status: formState.status,
           updated_at: new Date().toISOString(),
+          ...(canEditTiming ? buildTimingInsertPayload(formState.timing) : {}),
         })
         .eq("id", tournament.id);
 
@@ -575,6 +615,185 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
               </p>
             </>
           ) : null}
+
+          <section className="form-section">
+            <div>
+              <h2>Timing Settings</h2>
+              <p className="muted">
+                Settings are editable before check-in starts. During live play, use Live Control to pause or extend timers.
+              </p>
+            </div>
+
+            <div className="form-grid">
+              <label htmlFor="check-in-window-minutes">
+                Check-in window minutes
+                <input
+                  disabled={!canEditTiming}
+                  id="check-in-window-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.checkInWindowMinutes}
+                  onChange={(event) =>
+                    updateTimingField("checkInWindowMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+
+              <label htmlFor="replacement-window-minutes">
+                Replacement window minutes
+                <input
+                  disabled={!canEditTiming}
+                  id="replacement-window-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.replacementWindowMinutes}
+                  onChange={(event) =>
+                    updateTimingField("replacementWindowMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="form-grid">
+              <label htmlFor="group-bo1-round-minutes">
+                Group BO1 minutes
+                <input
+                  disabled={!canEditTiming}
+                  id="group-bo1-round-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.groupBo1RoundMinutes}
+                  onChange={(event) =>
+                    updateTimingField("groupBo1RoundMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+
+              <label htmlFor="group-bo3-round-minutes">
+                Group BO3 minutes
+                <input
+                  disabled={!canEditTiming}
+                  id="group-bo3-round-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.groupBo3RoundMinutes}
+                  onChange={(event) =>
+                    updateTimingField("groupBo3RoundMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="form-grid">
+              <label htmlFor="bracket-bo1-round-minutes">
+                Bracket BO1 minutes
+                <input
+                  disabled={!canEditTiming}
+                  id="bracket-bo1-round-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.bracketBo1RoundMinutes}
+                  onChange={(event) =>
+                    updateTimingField("bracketBo1RoundMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+
+              <label htmlFor="bracket-bo3-round-minutes">
+                Bracket BO3 minutes
+                <input
+                  disabled={!canEditTiming}
+                  id="bracket-bo3-round-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.bracketBo3RoundMinutes}
+                  onChange={(event) =>
+                    updateTimingField("bracketBo3RoundMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+
+              <label htmlFor="bracket-bo5-round-minutes">
+                Bracket BO5 minutes
+                <input
+                  disabled={!canEditTiming}
+                  id="bracket-bo5-round-minutes"
+                  min={minTournamentTimerMinutes}
+                  max={maxTournamentTimerMinutes}
+                  required
+                  type="number"
+                  value={formState.timing.bracketBo5RoundMinutes}
+                  onChange={(event) =>
+                    updateTimingField("bracketBo5RoundMinutes", Number.parseInt(event.target.value, 10))
+                  }
+                />
+              </label>
+            </div>
+
+            <label className="checkbox-label" htmlFor="replacement-window-enabled">
+              <input
+                checked={formState.timing.replacementWindowEnabled}
+                disabled={!canEditTiming}
+                id="replacement-window-enabled"
+                type="checkbox"
+                onChange={(event) =>
+                  updateTimingField("replacementWindowEnabled", event.target.checked)
+                }
+              />
+              Allow replacement window
+            </label>
+
+            <label className="checkbox-label" htmlFor="independent-group-progression">
+              <input
+                checked={formState.timing.independentGroupProgression}
+                disabled={!canEditTiming}
+                id="independent-group-progression"
+                type="checkbox"
+                onChange={(event) =>
+                  updateTimingField("independentGroupProgression", event.target.checked)
+                }
+              />
+              Allow independent group progression
+            </label>
+
+            <label className="checkbox-label" htmlFor="auto-open-ready-matches">
+              <input
+                checked={formState.timing.autoOpenReadyMatches}
+                disabled={!canEditTiming}
+                id="auto-open-ready-matches"
+                type="checkbox"
+                onChange={(event) =>
+                  updateTimingField("autoOpenReadyMatches", event.target.checked)
+                }
+              />
+              Auto-open ready matches when both players are known
+            </label>
+
+            <label className="checkbox-label" htmlFor="auto-apply-timer-outcomes">
+              <input
+                checked={formState.timing.autoApplyTimerOutcomes}
+                disabled
+                id="auto-apply-timer-outcomes"
+                type="checkbox"
+                onChange={(event) =>
+                  updateTimingField("autoApplyTimerOutcomes", event.target.checked)
+                }
+              />
+              Auto-apply timer outcomes (planned; kept off)
+            </label>
+          </section>
 
           <label htmlFor="rules">
             Rules
