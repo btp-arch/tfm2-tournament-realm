@@ -2,9 +2,12 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import {
   formatDateTime,
+  tournamentTierBadgeTones,
+  tournamentTierLabels,
   tournamentStatusLabels,
   type TournamentRow,
   type TournamentStatus,
+  type TournamentTier,
 } from "@/lib/tournaments";
 
 type PageHeaderProps = {
@@ -33,6 +36,7 @@ type TournamentCardProps = {
   winnerName?: string | null;
   note?: string;
   compact?: boolean;
+  calendarEntry?: boolean;
 };
 
 const statusTone: Partial<Record<TournamentStatus, string>> = {
@@ -99,6 +103,14 @@ export function MatchStatusBadge({ children, tone }: { children: ReactNode; tone
   );
 }
 
+export function TournamentTierBadge({ tier }: { tier: TournamentTier }) {
+  return (
+    <MatchStatusBadge tone={tournamentTierBadgeTones[tier]}>
+      {tournamentTierLabels[tier]}
+    </MatchStatusBadge>
+  );
+}
+
 export function EmptyState({ title = "Nothing to show yet", message }: StateProps) {
   return (
     <div className="empty-state">
@@ -122,10 +134,63 @@ export function TournamentCard({
   winnerName,
   note,
   compact = false,
+  calendarEntry = false,
 }: TournamentCardProps) {
   const capacity = tournament.max_players
     ? `${registrationCount}/${tournament.max_players}`
     : `${registrationCount}`;
+  const startTime = tournament.starts_at
+    ? new Intl.DateTimeFormat(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(new Date(tournament.starts_at))
+    : "TBD";
+  const showCalendarCapacity = !winnerName || tournament.status !== "completed";
+  const calendarTierSymbol =
+    tournament.tournament_tier === "official"
+      ? "*"
+      : tournament.tournament_tier === "championship"
+        ? "#"
+        : null;
+
+  if (calendarEntry) {
+    return (
+      <Link
+        aria-label={`${tournament.name}, ${tournamentTierLabels[tournament.tournament_tier]}, ${tournamentStatusLabels[tournament.status]}, starts ${startTime}`}
+        className="calendar-tournament-entry"
+        href={`/tournaments/${tournament.id}`}
+        title={tournament.name}
+      >
+        <div className="calendar-entry-topline">
+          <span className="calendar-entry-time">{startTime}</span>
+          <span className="calendar-entry-status" title={tournamentStatusLabels[tournament.status]}>
+            {calendarTierSymbol ? (
+              <span
+                aria-label={tournamentTierLabels[tournament.tournament_tier]}
+                className={["calendar-tier-symbol", `tier-${tournament.tournament_tier}`].join(" ")}
+                role="img"
+                title={tournamentTierLabels[tournament.tournament_tier]}
+              >
+                {calendarTierSymbol}
+              </span>
+            ) : null}
+            <span
+              aria-label={tournamentStatusLabels[tournament.status]}
+              className={["status-dot", statusTone[tournament.status]].filter(Boolean).join(" ")}
+              role="img"
+            />
+          </span>
+        </div>
+        <strong className="calendar-entry-name">{tournament.name}</strong>
+        <div className="calendar-entry-meta">
+          {winnerName && tournament.status === "completed" ? (
+            <span className="calendar-entry-winner">🏅 {winnerName}</span>
+          ) : null}
+          {showCalendarCapacity ? <span>{capacity} players</span> : null}
+        </div>
+      </Link>
+    );
+  }
 
   return (
     <Link
@@ -144,6 +209,7 @@ export function TournamentCard({
         ) : null}
       </div>
       <div className="tournament-summary-meta">
+        <TournamentTierBadge tier={tournament.tournament_tier} />
         <StatusBadge status={tournament.status} />
         <span className="muted">{capacity} players</span>
       </div>

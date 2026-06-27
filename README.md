@@ -127,15 +127,26 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - Admins can close registration by setting status to `registration_closed`, and can reopen registration by setting status to `registration_open` only when the registration close time is in the future.
 - `/organizer` groups managed tournaments by status and links to manage/edit.
 - `/organizer` flags tournaments with result reports or disputes needing review.
-- `/admin` lists all tournaments with organizer, status, registered participant count, and dashboard calendar visibility.
+- `/admin` lists all tournaments with organizer, status, registered participant count, dashboard calendar visibility, tournament tier, and stat-exclusion state.
 - Admins control public dashboard calendar visibility from `/admin` tournament management. The dashboard reads only tournaments with `show_on_calendar = true`; organizers can still create and manage tournaments, but calendar placement is an admin decision.
+- Admins control tournament classification from `/admin` tournament management. Classification is separate from calendar visibility and uses `tournament_tier` values of `test`, `community`, `official`, or `championship`, plus `exclude_from_stats`.
+- Organizers can see classification state on organizer and tournament detail surfaces, but only admins can mark official/championship tiers or exclude tournaments from stats.
+
+### Tournament records foundation
+
+- Public player record pages are not implemented yet.
+- Future official records should count only tournaments where `tournament_tier` is `official` or `championship`.
+- Future overall records should count tournaments where `tournament_tier` is `community`, `official`, or `championship`.
+- `test` tournaments should not count toward public player records.
+- If `exclude_from_stats` is true, the tournament should be excluded from both official and overall public stats regardless of tier.
+- Dashboard calendar visibility remains controlled only by `show_on_calendar`. A tournament can be calendar-visible without being official, and official/championship tournaments can be hidden from the dashboard calendar.
 
 ### Player dashboard and calendar
 
 - `/` is a player-facing dashboard, not an organizer/admin control panel.
 - The site-wide active action banner remains near the top of the app and links signed-in users to their highest-priority tournament or match action.
 - The dashboard calendar shows 7 local-date columns: yesterday, today, and the next five days.
-- Calendar cards show scheduled start time, tournament name, status, registered/max players, and winner information for completed tournaments when a finalized winner can be derived from the bracket.
+- Calendar cards show scheduled start time, tournament name, status, registered/max players, official/championship tier badges when applicable, and winner information for completed tournaments when a finalized winner can be derived from the bracket.
 - Signed-in users also see `My Events`, which lists their registered tournaments and active match rooms without admin/organizer controls.
 - Signed-out users see the public calendar plus a compact getting-started checklist.
 - `Recent Winners` lists recently completed calendar-visible tournaments. Winner names are derived from the highest-round completed match with a winner, so older completed tournaments without finalized match data may show the winner as pending.

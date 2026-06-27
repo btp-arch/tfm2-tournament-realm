@@ -1168,11 +1168,14 @@ export type Database = {
           created_at: string
           created_by: string
           description: string | null
+          exclude_from_stats: boolean
           external_community_url: string | null
           format: Database["public"]["Enums"]["match_format"]
           id: string
           max_players: number | null
           name: string
+          official_marked_at: string | null
+          official_marked_by: string | null
           registration_closes_at: string | null
           rules: string | null
           show_on_calendar: boolean
@@ -1180,17 +1183,21 @@ export type Database = {
           starts_at: string | null
           status: Database["public"]["Enums"]["tournament_status"]
           tournament_format: Database["public"]["Enums"]["tournament_format"]
+          tournament_tier: Database["public"]["Enums"]["tournament_tier"]
           updated_at: string
         }
         Insert: {
           created_at?: string
           created_by: string
           description?: string | null
+          exclude_from_stats?: boolean
           external_community_url?: string | null
           format?: Database["public"]["Enums"]["match_format"]
           id?: string
           max_players?: number | null
           name: string
+          official_marked_at?: string | null
+          official_marked_by?: string | null
           registration_closes_at?: string | null
           rules?: string | null
           show_on_calendar?: boolean
@@ -1198,17 +1205,21 @@ export type Database = {
           starts_at?: string | null
           status?: Database["public"]["Enums"]["tournament_status"]
           tournament_format?: Database["public"]["Enums"]["tournament_format"]
+          tournament_tier?: Database["public"]["Enums"]["tournament_tier"]
           updated_at?: string
         }
         Update: {
           created_at?: string
           created_by?: string
           description?: string | null
+          exclude_from_stats?: boolean
           external_community_url?: string | null
           format?: Database["public"]["Enums"]["match_format"]
           id?: string
           max_players?: number | null
           name?: string
+          official_marked_at?: string | null
+          official_marked_by?: string | null
           registration_closes_at?: string | null
           rules?: string | null
           show_on_calendar?: boolean
@@ -1216,6 +1227,7 @@ export type Database = {
           starts_at?: string | null
           status?: Database["public"]["Enums"]["tournament_status"]
           tournament_format?: Database["public"]["Enums"]["tournament_format"]
+          tournament_tier?: Database["public"]["Enums"]["tournament_tier"]
           updated_at?: string
         }
         Relationships: [
@@ -1229,6 +1241,20 @@ export type Database = {
           {
             foreignKeyName: "tournaments_created_by_fkey"
             columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournaments_official_marked_by_fkey"
+            columns: ["official_marked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournaments_official_marked_by_fkey"
+            columns: ["official_marked_by"]
             isOneToOne: false
             referencedRelation: "public_profiles"
             referencedColumns: ["id"]
@@ -1773,11 +1799,14 @@ export type Database = {
           created_at: string
           created_by: string
           description: string | null
+          exclude_from_stats: boolean
           external_community_url: string | null
           format: Database["public"]["Enums"]["match_format"]
           id: string
           max_players: number | null
           name: string
+          official_marked_at: string | null
+          official_marked_by: string | null
           registration_closes_at: string | null
           rules: string | null
           show_on_calendar: boolean
@@ -1785,6 +1814,42 @@ export type Database = {
           starts_at: string | null
           status: Database["public"]["Enums"]["tournament_status"]
           tournament_format: Database["public"]["Enums"]["tournament_format"]
+          tournament_tier: Database["public"]["Enums"]["tournament_tier"]
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "tournaments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      set_tournament_classification: {
+        Args: {
+          excluded: boolean
+          target_tournament: string
+          tier: Database["public"]["Enums"]["tournament_tier"]
+        }
+        Returns: {
+          created_at: string
+          created_by: string
+          description: string | null
+          exclude_from_stats: boolean
+          external_community_url: string | null
+          format: Database["public"]["Enums"]["match_format"]
+          id: string
+          max_players: number | null
+          name: string
+          official_marked_at: string | null
+          official_marked_by: string | null
+          registration_closes_at: string | null
+          rules: string | null
+          show_on_calendar: boolean
+          slug: string
+          starts_at: string | null
+          status: Database["public"]["Enums"]["tournament_status"]
+          tournament_format: Database["public"]["Enums"]["tournament_format"]
+          tournament_tier: Database["public"]["Enums"]["tournament_tier"]
           updated_at: string
         }
         SetofOptions: {
@@ -1886,6 +1951,7 @@ export type Database = {
         | "cancelled"
         | "check_in"
         | "active"
+      tournament_tier: "test" | "community" | "official" | "championship"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2083,6 +2149,7 @@ export const Constants = {
         "check_in",
         "active",
       ],
+      tournament_tier: ["test", "community", "official", "championship"],
     },
   },
 } as const

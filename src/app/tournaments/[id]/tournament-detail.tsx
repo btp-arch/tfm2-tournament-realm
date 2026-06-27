@@ -4,7 +4,13 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
-import { ErrorState, LoadingState, MatchStatusBadge, StatusBadge } from "@/components/ui";
+import {
+  ErrorState,
+  LoadingState,
+  MatchStatusBadge,
+  StatusBadge,
+  TournamentTierBadge,
+} from "@/components/ui";
 import {
   bracketSizes,
   generateSingleEliminationMatches,
@@ -1233,7 +1239,13 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     <>
       <div className="section-heading">
         <div>
-          <StatusBadge status={tournament.status} />
+          <div className="role-list">
+            <StatusBadge status={tournament.status} />
+            <TournamentTierBadge tier={tournament.tournament_tier} />
+            {tournament.exclude_from_stats ? (
+              <span className="badge status-badge status-badge-danger">Stats Excluded</span>
+            ) : null}
+          </div>
           <h1>{tournament.name}</h1>
           <p className="muted">Organized by {organizer?.display_name ?? "Tournament staff"}</p>
           {lastUpdatedAt ? (

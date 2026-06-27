@@ -3,6 +3,7 @@ import type { Database } from "@/types/database.generated";
 export type MatchFormat = Database["public"]["Enums"]["match_format"];
 export type MatchStatus = Database["public"]["Enums"]["match_status"];
 export type MatchSideChoice = Database["public"]["Enums"]["side_choice"];
+export type TournamentTier = Database["public"]["Enums"]["tournament_tier"];
 export type TournamentFormat = Database["public"]["Enums"]["tournament_format"];
 export type TournamentStatus = Database["public"]["Enums"]["tournament_status"];
 export type RegistrationStatus = Database["public"]["Enums"]["registration_status"];
@@ -51,6 +52,12 @@ export const editableTournamentStatuses: TournamentStatus[] = [
 
 export const matchFormats: MatchFormat[] = ["bo1", "bo3", "bo5"];
 export const tournamentFormats: TournamentFormat[] = ["single_elimination"];
+export const tournamentTiers: TournamentTier[] = [
+  "test",
+  "community",
+  "official",
+  "championship",
+];
 
 export const tournamentStatusLabels: Record<TournamentStatus, string> = {
   active: "Active",
@@ -62,6 +69,27 @@ export const tournamentStatusLabels: Record<TournamentStatus, string> = {
   published: "Published",
   registration_closed: "Registration Closed",
   registration_open: "Registration Open",
+};
+
+export const tournamentTierLabels: Record<TournamentTier, string> = {
+  championship: "Championship",
+  community: "Community",
+  official: "Official",
+  test: "Test",
+};
+
+export const tournamentTierBadgeTones: Record<TournamentTier, "action" | "danger" | "gold" | "muted"> = {
+  championship: "gold",
+  community: "muted",
+  official: "action",
+  test: "danger",
+};
+
+export const tournamentTierDescriptions: Record<TournamentTier, string> = {
+  championship: "Counts toward official and overall records.",
+  community: "Counts toward overall records only.",
+  official: "Counts toward official and overall records.",
+  test: "Excluded from public player records.",
 };
 
 export const matchFormatLabels: Record<MatchFormat, string> = {
@@ -168,6 +196,30 @@ export function toLocalDateTimeInput(value: string | null) {
   const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
 
   return localDate.toISOString().slice(0, 16);
+}
+
+export function isOfficialTournament(tournament: Pick<TournamentRow, "tournament_tier" | "exclude_from_stats">) {
+  return (
+    !tournament.exclude_from_stats &&
+    (tournament.tournament_tier === "official" || tournament.tournament_tier === "championship")
+  );
+}
+
+export function countsTowardOfficialStats(
+  tournament: Pick<TournamentRow, "tournament_tier" | "exclude_from_stats">,
+) {
+  return isOfficialTournament(tournament);
+}
+
+export function countsTowardOverallStats(
+  tournament: Pick<TournamentRow, "tournament_tier" | "exclude_from_stats">,
+) {
+  return (
+    !tournament.exclude_from_stats &&
+    (tournament.tournament_tier === "community" ||
+      tournament.tournament_tier === "official" ||
+      tournament.tournament_tier === "championship")
+  );
 }
 
 export function isRegistrationOpen(tournament: Pick<TournamentRow, "status" | "registration_closes_at">) {

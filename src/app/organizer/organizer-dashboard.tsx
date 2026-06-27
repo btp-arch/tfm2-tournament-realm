@@ -5,7 +5,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { AccessDenied } from "@/components/access-denied";
-import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from "@/components/ui";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PageHeader,
+  StatusBadge,
+  TournamentTierBadge,
+} from "@/components/ui";
 import { formatError, logError } from "@/lib/errors";
 import { ensureProfile, type Profile } from "@/lib/profiles";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
@@ -286,6 +293,18 @@ export function OrganizerDashboard() {
                           {count}
                           {capacity} registered participant{count === 1 ? "" : "s"}
                         </p>
+                        <div className="role-list">
+                          <StatusBadge status={tournament.status} />
+                          <TournamentTierBadge tier={tournament.tournament_tier} />
+                          {tournament.exclude_from_stats ? (
+                            <span className="badge status-badge status-badge-danger">Stats Excluded</span>
+                          ) : null}
+                          {tournament.show_on_calendar ? (
+                            <span className="badge status-badge status-badge-gold">Calendar Visible</span>
+                          ) : (
+                            <span className="badge status-badge status-badge-muted">Calendar Hidden</span>
+                          )}
+                        </div>
                         {reviewCount > 0 ? (
                           <p className="error">
                             {reviewCount} match{reviewCount === 1 ? "" : "es"} need result review.

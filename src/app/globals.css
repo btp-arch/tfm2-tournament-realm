@@ -48,9 +48,9 @@ textarea {
 }
 
 .container {
-  max-width: 1180px;
+  width: min(100%, 1680px);
   margin: 0 auto;
-  padding: 2rem;
+  padding: clamp(1rem, 2.2vw, 2rem);
 }
 
 .nav {
@@ -58,7 +58,7 @@ textarea {
   gap: .55rem;
   align-items: center;
   flex-wrap: wrap;
-  padding: .85rem 2rem;
+  padding: .85rem clamp(1rem, 2.2vw, 2rem);
   border-bottom: 1px solid var(--border);
   background: #0d1420;
 }
@@ -173,7 +173,7 @@ textarea {
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border);
-  padding: .9rem 2rem;
+  padding: .9rem clamp(1rem, 2.2vw, 2rem);
   background: #121c2a;
 }
 
@@ -191,7 +191,7 @@ textarea {
 .card {
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 1.25rem;
+  padding: clamp(1rem, 1.5vw, 1.25rem);
   background: var(--surface);
   margin: 1rem 0;
 }
@@ -230,13 +230,20 @@ textarea {
   gap: 1rem;
   justify-content: space-between;
   align-items: flex-end;
+  flex-wrap: wrap;
   margin: .5rem 0 1.25rem;
+  min-width: 0;
+}
+
+.page-header > div {
+  min-width: min(100%, 28rem);
 }
 
 .page-header h1 {
   margin: .65rem 0 .4rem;
-  font-size: clamp(2rem, 4vw, 3.4rem);
+  font-size: clamp(2.2rem, 5vw, 4.4rem);
   line-height: 1;
+  overflow-wrap: anywhere;
 }
 
 .page-header p,
@@ -501,6 +508,34 @@ textarea {
   min-width: 220px;
 }
 
+.compact-control,
+.checkbox-control {
+  display: inline-flex;
+  gap: .4rem;
+  align-items: center;
+  color: #dce8f8;
+  font-size: .9rem;
+}
+
+.compact-control {
+  flex-wrap: wrap;
+}
+
+.compact-control select {
+  min-width: 145px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: .55rem .65rem;
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.checkbox-control input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--blue);
+}
+
 .management-actions {
   display: flex;
   gap: 1rem;
@@ -677,18 +712,19 @@ textarea {
 
 .calendar-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(135px, 1fr));
-  gap: .75rem;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: .65rem;
   margin-top: 1rem;
 }
 
 .calendar-day {
   display: grid;
   align-content: start;
-  min-height: 220px;
+  min-width: 0;
+  min-height: 190px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: .85rem;
+  padding: .7rem;
   background: var(--surface-subtle);
 }
 
@@ -703,20 +739,154 @@ textarea {
   gap: .5rem;
   align-items: baseline;
   border-bottom: 1px solid var(--border);
-  padding-bottom: .65rem;
-  margin-bottom: .75rem;
+  padding-bottom: .5rem;
+  margin-bottom: .55rem;
+  min-width: 0;
+}
+
+.calendar-day-heading strong,
+.calendar-day-heading span {
+  min-width: 0;
 }
 
 .calendar-tournament-list,
 .winner-list,
 .action-card-list {
   display: grid;
-  gap: .65rem;
+  gap: .45rem;
 }
 
 .calendar-empty {
   margin: .25rem 0 0;
   font-size: .9rem;
+}
+
+.calendar-status-key {
+  display: flex;
+  gap: .65rem;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.calendar-status-key span {
+  display: inline-flex;
+  gap: .3rem;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.calendar-tournament-entry {
+  display: grid;
+  gap: .25rem;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: .5rem .55rem;
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.calendar-tournament-entry:hover {
+  border-color: var(--blue);
+  text-decoration: none;
+}
+
+.calendar-entry-topline,
+.calendar-entry-meta,
+.calendar-entry-status {
+  display: flex;
+  gap: .35rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.calendar-entry-topline {
+  justify-content: space-between;
+}
+
+.calendar-entry-time,
+.calendar-entry-status,
+.calendar-entry-meta {
+  color: var(--muted);
+  font-size: .72rem;
+  line-height: 1.2;
+}
+
+.calendar-entry-status {
+  flex: 0 0 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.calendar-tier-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: .65rem;
+  color: var(--blue-soft);
+  font-size: .78rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.calendar-tier-symbol.tier-championship {
+  color: var(--gold-soft);
+}
+
+.calendar-entry-name {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: .86rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.calendar-entry-meta {
+  justify-content: space-between;
+  overflow: hidden;
+}
+
+.calendar-entry-meta > span:last-child {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.calendar-entry-winner {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gold-soft);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.status-dot {
+  flex: 0 0 auto;
+  width: .45rem;
+  height: .45rem;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.status-dot.status-badge-active {
+  background: var(--blue);
+}
+
+.status-dot.status-badge-action {
+  background: var(--green);
+}
+
+.status-dot.status-badge-danger {
+  background: #f87171;
+}
+
+.status-dot.status-badge-gold {
+  background: var(--gold);
 }
 
 .tournament-summary-card,
@@ -828,6 +998,38 @@ textarea {
   padding-left: 1.2rem;
 }
 
+@media (max-width: 1320px) {
+  .calendar-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .calendar-day:nth-child(n + 5) {
+    display: none;
+  }
+
+  .calendar-day {
+    min-height: 170px;
+  }
+}
+
+@media (max-width: 980px) {
+  .calendar-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-two-column {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .calendar-day:nth-child(n + 4) {
+    display: none;
+  }
+
+  .page-header {
+    align-items: flex-start;
+  }
+}
+
 @media (max-width: 760px) {
   .container {
     padding: 1rem;
@@ -865,13 +1067,20 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .calendar-grid,
+  .calendar-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .dashboard-two-column {
     grid-template-columns: 1fr;
   }
 
   .calendar-day {
     min-height: auto;
+  }
+
+  .calendar-day:nth-child(n + 4) {
+    display: none;
   }
 
   .tournament-summary-card,
@@ -895,6 +1104,17 @@ textarea {
   }
 
   .role-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .calendar-grid,
+  .dashboard-two-column {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-status-key {
     justify-content: flex-start;
   }
 }

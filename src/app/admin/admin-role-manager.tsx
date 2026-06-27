@@ -5,7 +5,13 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { AccessDenied } from "@/components/access-denied";
-import { EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PageHeader,
+  TournamentTierBadge,
+} from "@/components/ui";
 import { formatError, logError } from "@/lib/errors";
 import { ensureProfile, profileSelect, type Profile } from "@/lib/profiles";
 import {
@@ -18,8 +24,12 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import {
   formatDateTime,
+  tournamentTierDescriptions,
+  tournamentTierLabels,
+  tournamentTiers,
   tournamentStatusLabels,
   type TournamentRow,
+  type TournamentTier,
 } from "@/lib/tournaments";
 
 const roleLabels: Record<PlatformRole, string> = {
@@ -335,6 +345,36 @@ export function AdminRoleManager() {
     setIsSaving(false);
   }
 
+  async function updateTournamentClassification(
+    tournamentId: string,
+    tier: TournamentTier,
+    excluded: boolean,
+  ) {
+    setIsSaving(true);
+    setNotice(null);
+    setError(null);
+
+    const { error: classificationError } = await supabase.rpc(
+      "set_tournament_classification",
+      {
+        target_tournament: tournamentId,
+        tier,
+        excluded,
+      },
+    );
+
+    if (classificationError) {
+      logError("Tournament classification update failed.", classificationError);
+      setError(formatError(classificationError, "Unable to update tournament classification."));
+      setIsSaving(false);
+      return;
+    }
+
+    await loadTournamentManagementData();
+    setNotice("Tournament classification updated.");
+    setIsSaving(false);
+  }
+
   function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
   }
@@ -420,9 +460,50 @@ export function AdminRoleManager() {
                       <span className={tournament.show_on_calendar ? "badge status-badge status-badge-gold" : "badge status-badge status-badge-muted"}>
                         {tournament.show_on_calendar ? "Calendar Visible" : "Calendar Hidden"}
                       </span>
+                      <TournamentTierBadge tier={tournament.tournament_tier} />
+                      {tournament.exclude_from_stats ? (
+                        <span className="badge status-badge status-badge-danger">Stats Excluded</span>
+                      ) : null}
                     </div>
                   </div>
                   <div className="role-actions">
+                    <label className="compact-control" htmlFor={`classification-${tournament.id}`}>
+                      Tier
+                      <select
+                        disabled={isSaving}
+                        id={`classification-${tournament.id}`}
+                        value={tournament.tournament_tier}
+                        title={tournamentTierDescriptions[tournament.tournament_tier]}
+                        onChange={(event) =>
+                          updateTournamentClassification(
+                            tournament.id,
+                            event.target.value as TournamentTier,
+                            tournament.exclude_from_stats,
+                          )
+                        }
+                      >
+                        {tournamentTiers.map((tier) => (
+                          <option key={tier} value={tier}>
+                            {tournamentTierLabels[tier]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="checkbox-control">
+                      <input
+                        checked={tournament.exclude_from_stats}
+                        disabled={isSaving}
+                        type="checkbox"
+                        onChange={(event) =>
+                          updateTournamentClassification(
+                            tournament.id,
+                            tournament.tournament_tier,
+                            event.target.checked,
+                          )
+                        }
+                      />
+                      Exclude Stats
+                    </label>
                     <button
                       className="button secondary-button"
                       disabled={isSaving}

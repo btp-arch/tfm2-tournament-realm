@@ -386,7 +386,17 @@ export function DashboardHome() {
       <SectionCard
         className="dashboard-calendar-card"
         title="7-Day Tournament Calendar"
-        description="Yesterday, today, and the next five days. Admins choose which tournaments appear here."
+        action={
+          <div className="calendar-status-key" aria-label="Calendar status color key">
+            <span><span className="status-dot status-badge-action" aria-hidden="true" /> Registration</span>
+            <span><span className="status-dot status-badge-muted" aria-hidden="true" /> Closed</span>
+            <span><span className="status-dot status-badge-active" aria-hidden="true" /> Active</span>
+            <span><span className="status-dot status-badge-gold" aria-hidden="true" /> Completed</span>
+            <span><span className="status-dot status-badge-danger" aria-hidden="true" /> Cancelled</span>
+            <span><span className="calendar-tier-symbol tier-official" aria-hidden="true">*</span> Official</span>
+            <span><span className="calendar-tier-symbol tier-championship" aria-hidden="true">#</span> Championship</span>
+          </div>
+        }
       >
         <div className="calendar-grid" aria-label="Seven day tournament calendar">
           {calendarDays.map((day) => {
@@ -404,6 +414,7 @@ export function DashboardHome() {
                   <div className="calendar-tournament-list">
                     {tournaments.map((tournament) => (
                       <TournamentCard
+                        calendarEntry
                         compact
                         key={tournament.id}
                         registrationCount={registrationCounts[tournament.id] ?? 0}
