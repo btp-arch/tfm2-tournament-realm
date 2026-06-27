@@ -31,6 +31,11 @@ export type MatchEvidenceType =
 
 export type MatchResolutionAction = "confirm_winner" | "replay_required" | "no_contest";
 
+export type SeriesScore = {
+  winnerScore: number;
+  loserScore: number;
+};
+
 export const publicTournamentStatuses: TournamentStatus[] = [
   "registration_open",
   "registration_closed",
@@ -98,6 +103,12 @@ export const matchFormatLabels: Record<MatchFormat, string> = {
   bo5: "BO5",
 };
 
+const requiredWinsByMatchFormat: Record<MatchFormat, number> = {
+  bo1: 1,
+  bo3: 2,
+  bo5: 3,
+};
+
 export const matchStatusLabels: Record<MatchStatus, string> = {
   assigned: "Ready",
   awaiting_guest_join: "Match Created",
@@ -162,6 +173,46 @@ export function formatDateTime(value: string | null) {
   }).format(new Date(value));
 }
 
+export function getValidScoresForMatchFormat(format: MatchFormat): SeriesScore[] {
+  const requiredWins = requiredWinsByMatchFormat[format];
+
+  return Array.from({ length: requiredWins }, (_, loserScore) => ({
+    winnerScore: requiredWins,
+    loserScore,
+  }));
+}
+
+export function validateSeriesScore(
+  format: MatchFormat,
+  winnerScore: number,
+  loserScore: number,
+) {
+  return getValidScoresForMatchFormat(format).some(
+    (score) => score.winnerScore === winnerScore && score.loserScore === loserScore,
+  );
+}
+
+export function formatSeriesScore(score: SeriesScore | null | undefined) {
+  if (!score) {
+    return null;
+  }
+
+  return `${score.winnerScore}-${score.loserScore}`;
+}
+
+export function formatMatchFinalScore(
+  match: Pick<MatchRow, "final_winner_score" | "final_loser_score">,
+) {
+  if (match.final_winner_score === null || match.final_loser_score === null) {
+    return null;
+  }
+
+  return formatSeriesScore({
+    winnerScore: match.final_winner_score,
+    loserScore: match.final_loser_score,
+  });
+}
+
 export function normalizeOptionalText(value: string) {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -219,6 +270,27 @@ export function countsTowardOverallStats(
     (tournament.tournament_tier === "community" ||
       tournament.tournament_tier === "official" ||
       tournament.tournament_tier === "championship")
+  );
+}
+
+export function countsTowardPlayerRecord(
+  tournament: Pick<TournamentRow, "tournament_tier" | "exclude_from_stats">,
+  match: Pick<
+    MatchRow,
+    | "status"
+    | "player_one_id"
+    | "player_two_id"
+    | "winner_id"
+    | "final_winner_score"
+    | "final_loser_score"
+  >,
+) {
+  return (
+    countsTowardOverallStats(tournament) &&
+    (match.status === "finalized" || match.status === "confirmed") &&
+    Boolean(match.player_one_id && match.player_two_id && match.winner_id) &&
+    match.final_winner_score !== null &&
+    match.final_loser_score !== null
   );
 }
 

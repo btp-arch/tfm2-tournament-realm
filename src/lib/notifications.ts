@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database.generated";
 import type { MatchCheckInRow, MatchReportRow, MatchRow, TournamentCheckInRow, TournamentRegistrationRow, TournamentRow } from "@/lib/tournaments";
 import type { RoleState } from "@/lib/roles";
+import { doMatchReportsMismatch } from "@/lib/match-rooms";
 
 export type NotificationRow = Database["public"]["Tables"]["notifications"]["Row"];
 export type AppSupabaseClient = SupabaseClient<Database>;
@@ -34,7 +35,7 @@ function buildMatchAction(
   const matchReports = reports.filter((report) => report.match_id === match.id);
   const reportsMismatch =
     matchReports.length >= 2 &&
-    new Set(matchReports.map((report) => report.reported_winner_id)).size > 1;
+    doMatchReportsMismatch(matchReports[0] ?? null, matchReports[1] ?? null);
 
   if (
     reportsMismatch &&
@@ -44,7 +45,7 @@ function buildMatchAction(
     return {
       priority: 100,
       title: "Confirm or update your report",
-      body: "Reports do not match. Review your winner answer.",
+      body: "Reports do not match. Review your winner and score answer.",
       href: `/matches/${match.id}`,
     };
   }
@@ -53,7 +54,7 @@ function buildMatchAction(
     return {
       priority: 90,
       title: "Report your match result",
-      body: "Your match is in progress. Report the winner after the game ends.",
+      body: "Your match is in progress. Report the winner and score after the game ends.",
       href: `/matches/${match.id}`,
     };
   }

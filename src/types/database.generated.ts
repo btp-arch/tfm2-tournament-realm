@@ -412,7 +412,9 @@ export type Database = {
           notes: string | null
           outcome: Database["public"]["Enums"]["report_outcome"]
           report_version: number
+          reported_loser_score: number | null
           reported_winner_id: string
+          reported_winner_score: number | null
           reporter_id: string
           score_player_one: number
           score_player_two: number
@@ -428,7 +430,9 @@ export type Database = {
           notes?: string | null
           outcome: Database["public"]["Enums"]["report_outcome"]
           report_version?: number
+          reported_loser_score?: number | null
           reported_winner_id: string
+          reported_winner_score?: number | null
           reporter_id: string
           score_player_one?: number
           score_player_two?: number
@@ -444,7 +448,9 @@ export type Database = {
           notes?: string | null
           outcome?: Database["public"]["Enums"]["report_outcome"]
           report_version?: number
+          reported_loser_score?: number | null
           reported_winner_id?: string
+          reported_winner_score?: number | null
           reporter_id?: string
           score_player_one?: number
           score_player_two?: number
@@ -493,6 +499,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          final_loser_score: number | null
+          final_winner_score: number | null
           finalized_at: string | null
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
@@ -524,6 +532,8 @@ export type Database = {
           bracket_position?: number | null
           check_in_opens_at?: string | null
           created_at?: string
+          final_loser_score?: number | null
+          final_winner_score?: number | null
           finalized_at?: string | null
           finalized_by?: string | null
           format?: Database["public"]["Enums"]["match_format"]
@@ -555,6 +565,8 @@ export type Database = {
           bracket_position?: number | null
           check_in_opens_at?: string | null
           created_at?: string
+          final_loser_score?: number | null
+          final_winner_score?: number | null
           finalized_at?: string | null
           finalized_by?: string | null
           format?: Database["public"]["Enums"]["match_format"]
@@ -1305,6 +1317,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          final_loser_score: number | null
+          final_winner_score: number | null
           finalized_at: string | null
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
@@ -1345,6 +1359,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          final_loser_score: number | null
+          final_winner_score: number | null
           finalized_at: string | null
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
@@ -1394,6 +1410,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          final_loser_score: number | null
+          final_winner_score: number | null
           finalized_at: string | null
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
@@ -1437,6 +1455,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          final_loser_score: number | null
+          final_winner_score: number | null
           finalized_at: string | null
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
@@ -1477,6 +1497,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          final_loser_score: number | null
+          final_winner_score: number | null
           finalized_at: string | null
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
@@ -1517,6 +1539,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          final_loser_score: number | null
+          final_winner_score: number | null
           finalized_at: string | null
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
@@ -1551,51 +1575,107 @@ export type Database = {
           isSetofReturn: false
         }
       }
-      finalize_match_winner: {
-        Args: {
-          actor: string
-          selected_winner: string
-          source: string
-          target_match: string
-        }
-        Returns: {
-          bracket_position: number | null
-          check_in_opens_at: string | null
-          created_at: string
-          finalized_at: string | null
-          finalized_by: string | null
-          format: Database["public"]["Enums"]["match_format"]
-          game_created_at: string | null
-          guest_joined_at: string | null
-          host_side_choice: Database["public"]["Enums"]["side_choice"] | null
-          host_user_id: string | null
-          id: string
-          join_deadline_at: string | null
-          match_number: number | null
-          player_one_id: string | null
-          player_one_seed: number | null
-          player_one_slot: number | null
-          player_two_id: string | null
-          player_two_seed: number | null
-          player_two_slot: number | null
-          result_reported_at: string | null
-          round_id: string | null
-          round_number: number
-          scheduled_at: string | null
-          setup_deadline_at: string | null
-          stage_id: string | null
-          status: Database["public"]["Enums"]["match_status"]
-          tournament_id: string
-          updated_at: string
-          winner_id: string | null
-        }
-        SetofOptions: {
-          from: "*"
-          to: "matches"
-          isOneToOne: true
-          isSetofReturn: false
-        }
-      }
+      finalize_match_winner:
+        | {
+            Args: {
+              actor: string
+              selected_winner: string
+              source: string
+              target_match: string
+            }
+            Returns: {
+              bracket_position: number | null
+              check_in_opens_at: string | null
+              created_at: string
+              final_loser_score: number | null
+              final_winner_score: number | null
+              finalized_at: string | null
+              finalized_by: string | null
+              format: Database["public"]["Enums"]["match_format"]
+              game_created_at: string | null
+              guest_joined_at: string | null
+              host_side_choice:
+                | Database["public"]["Enums"]["side_choice"]
+                | null
+              host_user_id: string | null
+              id: string
+              join_deadline_at: string | null
+              match_number: number | null
+              player_one_id: string | null
+              player_one_seed: number | null
+              player_one_slot: number | null
+              player_two_id: string | null
+              player_two_seed: number | null
+              player_two_slot: number | null
+              result_reported_at: string | null
+              round_id: string | null
+              round_number: number
+              scheduled_at: string | null
+              setup_deadline_at: string | null
+              stage_id: string | null
+              status: Database["public"]["Enums"]["match_status"]
+              tournament_id: string
+              updated_at: string
+              winner_id: string | null
+            }
+            SetofOptions: {
+              from: "*"
+              to: "matches"
+              isOneToOne: true
+              isSetofReturn: false
+            }
+          }
+        | {
+            Args: {
+              actor: string
+              selected_loser_score: number
+              selected_winner: string
+              selected_winner_score: number
+              source: string
+              target_match: string
+            }
+            Returns: {
+              bracket_position: number | null
+              check_in_opens_at: string | null
+              created_at: string
+              final_loser_score: number | null
+              final_winner_score: number | null
+              finalized_at: string | null
+              finalized_by: string | null
+              format: Database["public"]["Enums"]["match_format"]
+              game_created_at: string | null
+              guest_joined_at: string | null
+              host_side_choice:
+                | Database["public"]["Enums"]["side_choice"]
+                | null
+              host_user_id: string | null
+              id: string
+              join_deadline_at: string | null
+              match_number: number | null
+              player_one_id: string | null
+              player_one_seed: number | null
+              player_one_slot: number | null
+              player_two_id: string | null
+              player_two_seed: number | null
+              player_two_slot: number | null
+              result_reported_at: string | null
+              round_id: string | null
+              round_number: number
+              scheduled_at: string | null
+              setup_deadline_at: string | null
+              stage_id: string | null
+              status: Database["public"]["Enums"]["match_status"]
+              tournament_id: string
+              updated_at: string
+              winner_id: string | null
+            }
+            SetofOptions: {
+              from: "*"
+              to: "matches"
+              isOneToOne: true
+              isSetofReturn: false
+            }
+          }
       insert_notification_once: {
         Args: {
           match_id: string
@@ -1620,6 +1700,14 @@ export type Database = {
         Args: { player: string; tournament: string }
         Returns: boolean
       }
+      is_valid_series_score: {
+        Args: {
+          loser_score: number
+          match_format: Database["public"]["Enums"]["match_format"]
+          winner_score: number
+        }
+        Returns: boolean
+      }
       mark_all_notifications_read: { Args: never; Returns: number }
       mark_match_game_created: {
         Args: { target_match: string }
@@ -1627,6 +1715,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          final_loser_score: number | null
+          final_winner_score: number | null
           finalized_at: string | null
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
@@ -1667,6 +1757,8 @@ export type Database = {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          final_loser_score: number | null
+          final_winner_score: number | null
           finalized_at: string | null
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
@@ -1708,12 +1800,18 @@ export type Database = {
         }
         Returns: Database["public"]["Enums"]["report_outcome"]
       }
+      required_wins_for_match_format: {
+        Args: { match_format: Database["public"]["Enums"]["match_format"] }
+        Returns: number
+      }
       reset_match_room: {
         Args: { target_match: string }
         Returns: {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          final_loser_score: number | null
+          final_winner_score: number | null
           finalized_at: string | null
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
@@ -1752,13 +1850,17 @@ export type Database = {
         Args: {
           resolution_action: string
           resolution_notes?: string
+          selected_loser_score?: number
           selected_winner?: string
+          selected_winner_score?: number
           target_match: string
         }
         Returns: {
           bracket_position: number | null
           check_in_opens_at: string | null
           created_at: string
+          final_loser_score: number | null
+          final_winner_score: number | null
           finalized_at: string | null
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
@@ -1862,7 +1964,9 @@ export type Database = {
       submit_match_report: {
         Args: {
           report_notes?: string
+          reported_loser_score: number
           reported_winner: string
+          reported_winner_score: number
           target_match: string
         }
         Returns: {
@@ -1875,7 +1979,9 @@ export type Database = {
           notes: string | null
           outcome: Database["public"]["Enums"]["report_outcome"]
           report_version: number
+          reported_loser_score: number | null
           reported_winner_id: string
+          reported_winner_score: number | null
           reporter_id: string
           score_player_one: number
           score_player_two: number

@@ -728,6 +728,10 @@ textarea {
   text-overflow: ellipsis;
 }
 
+.bracket-slot strong {
+  flex: 0 0 auto;
+}
+
 .bracket-slot.winner {
   border-color: var(--gold);
   background: #211c10;

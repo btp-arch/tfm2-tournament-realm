@@ -1,5 +1,6 @@
 import {
   formatDateTime,
+  formatSeriesScore,
   matchSideLabels,
   type MatchCheckInRow,
   type MatchEventRow,
@@ -124,6 +125,30 @@ export function getReportedWinnerName(
   return report ? getProfileName(profiles, report.reported_winner_id) : null;
 }
 
+export function getReportedScoreLabel(report: MatchReportRow | null) {
+  if (!report || report.reported_winner_score === null || report.reported_loser_score === null) {
+    return null;
+  }
+
+  return formatSeriesScore({
+    winnerScore: report.reported_winner_score,
+    loserScore: report.reported_loser_score,
+  });
+}
+
+export function doMatchReportsMismatch(
+  firstReport: MatchReportRow | null,
+  secondReport: MatchReportRow | null,
+) {
+  return Boolean(
+    firstReport &&
+      secondReport &&
+      (firstReport.reported_winner_id !== secondReport.reported_winner_id ||
+        firstReport.reported_winner_score !== secondReport.reported_winner_score ||
+        firstReport.reported_loser_score !== secondReport.reported_loser_score),
+  );
+}
+
 export function getReportConfirmationLabel(report: MatchReportRow | null) {
   if (!report) {
     return "No report";
@@ -170,11 +195,11 @@ export function getCurrentStepLabel({
   }
 
   if (match.status === "in_game") {
-    return isParticipant && !ownReport ? "Report who won" : "Match in progress";
+    return isParticipant && !ownReport ? "Report result" : "Match in progress";
   }
 
   if (match.status === "result_reported") {
-    return isParticipant && !ownReport ? "Report who won" : "Waiting for opponent report";
+    return isParticipant && !ownReport ? "Report result" : "Waiting for opponent report";
   }
 
   if (match.status === "replay_required") {
@@ -207,7 +232,15 @@ function getMetadataValue(metadata: Json, key: string) {
 
   const value = metadata[key];
 
-  return typeof value === "string" ? value : null;
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return value.toString();
+  }
+
+  return null;
 }
 
 export function describeEvent(
@@ -241,14 +274,20 @@ export function describeEvent(
 
   if (event.event_type === "result_reported") {
     const winnerName = getProfileName(profiles, getMetadataValue(event.metadata, "winner_id"));
+    const winnerScore = getMetadataValue(event.metadata, "winner_score");
+    const loserScore = getMetadataValue(event.metadata, "loser_score");
+    const scoreText = winnerScore !== null && loserScore !== null ? ` ${winnerScore}-${loserScore}` : "";
 
-    return `${actor} reported ${winnerName ?? "a player"} as winner.`;
+    return `${actor} reported ${winnerName ?? "a player"} as winner${scoreText}.`;
   }
 
   if (event.event_type === "confirmed") {
     const winnerName = getProfileName(profiles, getMetadataValue(event.metadata, "winner_id"));
+    const winnerScore = getMetadataValue(event.metadata, "winner_score");
+    const loserScore = getMetadataValue(event.metadata, "loser_score");
+    const scoreText = winnerScore !== null && loserScore !== null ? ` ${winnerScore}-${loserScore}` : "";
 
-    return `Result confirmed${winnerName ? `: ${winnerName} won` : ""}.`;
+    return `Result confirmed${winnerName ? `: ${winnerName} won${scoreText}` : ""}.`;
   }
 
   if (event.event_type === "disputed") {
@@ -314,7 +353,7 @@ export function getActionMessage(
   }
 
   if (match.status === "in_game") {
-    return "Match is in game. Both players should report the winner after the game ends.";
+    return "Match is in game. Both players should report the winner and score after the game ends.";
   }
 
   if (match.status === "result_reported") {

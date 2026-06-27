@@ -38,6 +38,7 @@ import {
   canWithdrawFromTournament,
   editableTournamentStatuses,
   formatDateTime,
+  formatMatchFinalScore,
   getRegistrationBlockedReason,
   getRegistrationReopenBlockedReason,
   getTournamentDeleteBlockedReason,
@@ -319,13 +320,16 @@ function TournamentTabs({
 function MatchSlotLine({
   isWinner,
   label,
+  score,
 }: {
   isWinner: boolean;
   label: string;
+  score: number | null;
 }) {
   return (
     <div className={["bracket-slot", isWinner ? "winner" : ""].filter(Boolean).join(" ")}>
       <span>{label}</span>
+      {score !== null ? <strong>{score}</strong> : null}
     </div>
   );
 }
@@ -353,6 +357,19 @@ function BracketMatchCard({
     getMatchSlotFallback(match, "two"),
   );
   const needsReview = match.status === "disputed" || match.status === "needs_admin";
+  const finalScoreLabel = formatMatchFinalScore(match);
+  const playerOneScore =
+    finalScoreLabel && match.winner_id
+      ? match.winner_id === match.player_one_id
+        ? match.final_winner_score
+        : match.final_loser_score
+      : null;
+  const playerTwoScore =
+    finalScoreLabel && match.winner_id
+      ? match.winner_id === match.player_two_id
+        ? match.final_winner_score
+        : match.final_loser_score
+      : null;
 
   const cardClassName = [
     "bracket-match-card",
@@ -366,15 +383,20 @@ function BracketMatchCard({
     <>
       <div className="bracket-card-topline">
         <strong>Match {match.match_number ?? match.bracket_position}</strong>
-        <span>{needsReview ? "Review" : matchFormatLabels[match.format]}</span>
+        <span>
+          {needsReview ? "Review" : matchFormatLabels[match.format]}
+          {finalScoreLabel ? ` ${finalScoreLabel}` : ""}
+        </span>
       </div>
       <MatchSlotLine
         isWinner={Boolean(match.winner_id) && match.winner_id === match.player_one_id}
         label={playerOne}
+        score={playerOneScore}
       />
       <MatchSlotLine
         isWinner={Boolean(match.winner_id) && match.winner_id === match.player_two_id}
         label={playerTwo}
+        score={playerTwoScore}
       />
     </>
   );
@@ -1467,6 +1489,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           match.player_two_seed,
           getMatchSlotFallback(match, "two"),
         );
+        const finalScoreLabel = formatMatchFinalScore(match) ?? "";
 
         return [
           `match ${match.match_number ?? match.bracket_position}`,
@@ -1475,6 +1498,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           playerTwo,
           matchStatusLabels[match.status],
           matchFormatLabels[match.format],
+          finalScoreLabel,
           getProfileName(profileMap, match.winner_id) ?? "",
         ]
           .join(" ")
@@ -1811,6 +1835,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                     {roundMatches.map((match) => {
                       const shouldLinkMatch = isPlayableMatch(match);
                       const nonPlayableMessage = getNonPlayableMatchMessage(match, profileMap);
+                      const finalScoreLabel = formatMatchFinalScore(match);
 
                       return (
                         <article className="match-row" key={match.id}>
@@ -1836,6 +1861,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                             ) : match.winner_id ? (
                               <p className="notice">
                                 Winner: {getProfileName(profileMap, match.winner_id) ?? "Player"}
+                                {finalScoreLabel ? ` ${finalScoreLabel}` : ""}
                               </p>
                             ) : match.status === "disputed" || match.status === "needs_admin" ? (
                               <p className="error">Organizer review required.</p>

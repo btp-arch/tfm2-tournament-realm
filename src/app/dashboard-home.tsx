@@ -486,7 +486,7 @@ export function DashboardHome() {
             <li>Register for a tournament.</li>
             <li>Check in when the event opens.</li>
             <li>Play your match.</li>
-            <li>Report the winner.</li>
+            <li>Report the winner and score.</li>
           </ol>
         </SectionCard>
       )}

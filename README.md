@@ -156,14 +156,17 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 ### Results, evidence, and disputes
 
 - Match rooms support player result reporting after the match reaches `In Game`.
-- Normal winner reporting asks only for the winner and optional notes. Evidence is not requested during aligned result reporting.
-- Both players report the winner. If reports match, the result finalizes automatically and the winner advances in the single-elimination bracket.
-- If reports differ, both players see a mismatch confirmation state. A player can change their report; if reports align, the match finalizes.
-- If both players confirm different winners, a dispute opens for organizer/admin review.
-- Staff can resolve review by confirming a winner, requiring replay, or marking no contest. Confirming a winner finalizes the match and advances that player.
+- Normal result reporting asks for the winner, the series score, and optional notes. Evidence is not requested during aligned result reporting.
+- Valid BO1 scores are `1-0`. Valid BO3 scores are `2-0` and `2-1`. Valid BO5 scores are `3-0`, `3-1`, and `3-2`.
+- The winning player's score must match the required wins for the match format, and the losing player's score must be lower.
+- Both players report the winner and score. If both winner and score match, the result finalizes automatically and the winner advances in the single-elimination bracket.
+- If the winner or score differs, both players see a mismatch confirmation state. A player can change their report; if reports align, the match finalizes.
+- If both players confirm different reports, a dispute opens for organizer/admin review.
+- Staff can resolve review by confirming a winner with a final score, requiring replay, or marking no contest. Confirming a winner finalizes the match and advances that player.
 - Evidence upload appears only in review contexts, such as an open dispute or organizer/admin review panel.
 - Evidence uploads use the private `match-evidence` Supabase Storage bucket. Images are limited to PNG, JPG/JPEG, or WEBP, 5 MB each, and 3 uploads per player report.
 - Evidence metadata stores match/report/user, type, file path/name, MIME type, size, notes, `expires_at`, and `retained_by_admin`. The MVP records a 30-day expiration timestamp but does not run automatic cleanup yet.
+- BYEs are structural bracket advancement only. They may display as advanced by BYE, but they do not count toward match history, official record, overall record, wins/losses, or game wins/losses.
 
 ### Live UX and notifications
 
@@ -254,17 +257,17 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 2. Start the app with `npm run dev`.
 3. Use an active tournament with a generated match between two signed-in player accounts.
 4. Move the match to `In Game` through match-room check-in and host `Match Created`.
-5. As Player A, report Player A as winner without uploading evidence.
-6. As Player B, report Player A as winner.
-7. Confirm the match finalizes, shows the winner, and advances the winner to the next-round TBD slot or completes the tournament if it was the final.
-8. On another match, have Player A report Player A and Player B report Player B.
-9. Confirm both players see “Reports do not match. Please confirm or change your report.”
+5. As Player A, report Player A as winner with a valid score for the match format, without uploading evidence.
+6. As Player B, report the same winner and score.
+7. Confirm the match finalizes, shows the winner and score, and advances the winner to the next-round TBD slot or completes the tournament if it was the final.
+8. On another match, have both players report the same winner but different valid scores.
+9. Confirm both players see “Reports do not match on winner or score. Please confirm or change your report.”
 10. Have one player change their report to match the other and confirm the match auto-finalizes.
-11. Repeat the mismatch path, then have both players confirm their different reports.
+11. Repeat the mismatch path with different winners or scores, then have both players confirm their different reports.
 12. Confirm the match becomes disputed and appears as needing review on `/organizer`.
 13. Confirm the Review Evidence section appears for the disputed match and a participant can upload one PNG/JPG/WEBP screenshot.
-14. As organizer/admin, confirm the review panel shows both player reports, confirmation states, evidence links, and resolution controls.
-15. Resolve by confirming a winner and verify advancement.
+14. As organizer/admin, confirm the review panel shows both player reports, scores, confirmation states, evidence links, and resolution controls.
+15. Resolve by confirming a winner with a final score and verify advancement.
 16. Confirm non-participants cannot upload evidence, mutate reports, or view private evidence links.
 
 ### Manual live UX and notifications smoke test

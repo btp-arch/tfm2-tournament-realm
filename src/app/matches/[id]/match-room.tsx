@@ -17,7 +17,9 @@ import {
   getOpponentId,
   getProfileName,
   getReportConfirmationLabel,
+  getReportedScoreLabel,
   getReportedWinnerName,
+  doMatchReportsMismatch,
   isMatchBye,
   isMatchWaiting,
   isPlayableMatch,
@@ -28,10 +30,14 @@ import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles
 import { createClient } from "@/lib/supabase/client";
 import {
   formatDateTime,
+  formatMatchFinalScore,
+  formatSeriesScore,
+  getValidScoresForMatchFormat,
   matchEvidenceTypeLabels,
   matchFormatLabels,
   matchResolutionLabels,
   matchStatusLabels,
+  validateSeriesScore,
   type DisputeRow,
   type MatchEvidenceRow,
   type MatchEvidenceType,
@@ -79,6 +85,23 @@ function getSafeFileName(file: File) {
   return file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120);
 }
 
+function getEvidenceExpirationIso() {
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 30);
+
+  return expiresAt.toISOString();
+}
+
+function parseScoreKey(scoreKey: string) {
+  const [winnerScoreText, loserScoreText] = scoreKey.split("-");
+  const winnerScore = Number(winnerScoreText);
+  const loserScore = Number(loserScoreText);
+
+  return Number.isInteger(winnerScore) && Number.isInteger(loserScore)
+    ? { winnerScore, loserScore }
+    : null;
+}
+
 export function MatchRoom({ matchId }: { matchId: string }) {
   const [supabase] = useState(() => createClient());
   const [user, setUser] = useState<User | null>(null);
@@ -95,12 +118,14 @@ export function MatchRoom({ matchId }: { matchId: string }) {
   const [profileMap, setProfileMap] = useState<Record<string, PublicProfile>>({});
   const [canManageMatch, setCanManageMatch] = useState(false);
   const [reportWinnerId, setReportWinnerId] = useState("");
+  const [reportScoreKey, setReportScoreKey] = useState("");
   const [reportNotes, setReportNotes] = useState("");
   const [evidenceType, setEvidenceType] = useState<MatchEvidenceType>("result_screen");
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
   const [evidenceNotes, setEvidenceNotes] = useState("");
   const [resolutionAction, setResolutionAction] = useState<MatchResolutionAction>("confirm_winner");
   const [resolutionWinnerId, setResolutionWinnerId] = useState("");
+  const [resolutionScoreKey, setResolutionScoreKey] = useState("");
   const [resolutionNote, setResolutionNote] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [savingAction, setSavingAction] = useState<SavingAction>(null);
@@ -310,11 +335,26 @@ export function MatchRoom({ matchId }: { matchId: string }) {
         : null;
       if (ownLoadedReport) {
         setReportWinnerId(ownLoadedReport.reported_winner_id);
+        setReportScoreKey(
+          ownLoadedReport.reported_winner_score !== null &&
+            ownLoadedReport.reported_loser_score !== null
+            ? `${ownLoadedReport.reported_winner_score}-${ownLoadedReport.reported_loser_score}`
+            : "",
+        );
         setReportNotes(ownLoadedReport.notes ?? "");
       } else if (loadedMatch.player_one_id) {
         setReportWinnerId(loadedMatch.player_one_id);
       }
+      const defaultScore = getValidScoresForMatchFormat(loadedMatch.format)[0];
+      if (!ownLoadedReport && defaultScore) {
+        setReportScoreKey(formatSeriesScore(defaultScore) ?? "");
+      }
       setResolutionWinnerId(loadedMatch.winner_id ?? loadedMatch.player_one_id ?? "");
+      setResolutionScoreKey(
+        loadedMatch.final_winner_score !== null && loadedMatch.final_loser_score !== null
+          ? `${loadedMatch.final_winner_score}-${loadedMatch.final_loser_score}`
+          : formatSeriesScore(defaultScore) ?? "",
+      );
     } catch (caughtError) {
       logError("Match room load failed.", caughtError);
       setError(formatError(caughtError, "Unable to load match room."));
@@ -357,6 +397,10 @@ export function MatchRoom({ matchId }: { matchId: string }) {
   const guestName = getProfileName(profileMap, guestId);
   const playerOneName = match ? getProfileName(profileMap, match.player_one_id) ?? "Player A" : "Player A";
   const playerTwoName = match ? getProfileName(profileMap, match.player_two_id) ?? "Player B" : "Player B";
+  const scoreOptions = match ? getValidScoresForMatchFormat(match.format) : [];
+  const selectedReportScore = parseScoreKey(reportScoreKey);
+  const selectedResolutionScore = parseScoreKey(resolutionScoreKey);
+  const finalScoreLabel = match ? formatMatchFinalScore(match) : null;
   const playableMatch = match ? isPlayableMatch(match) : false;
   const nonPlayableMessage = match ? getNonPlayableMatchMessage(match, profileMap) : null;
   const lobbyName = guestName ?? "Opponent display name";
@@ -371,11 +415,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
   const openDispute =
     disputes.find((dispute) => dispute.status === "open" || dispute.status === "under_review") ??
     null;
-  const reportsMismatch = Boolean(
-    playerOneReport &&
-      playerTwoReport &&
-      playerOneReport.reported_winner_id !== playerTwoReport.reported_winner_id,
-  );
+  const reportsMismatch = doMatchReportsMismatch(playerOneReport, playerTwoReport);
   const bothReportsSubmitted = Boolean(playerOneReport && playerTwoReport);
   const waitingForOpponentReport = Boolean(ownReport && !bothReportsSubmitted);
   const ownReportEvidence = ownReport
@@ -616,7 +656,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
         file_size_bytes: file.size,
         evidence_type: evidenceType,
         notes: evidenceNotes.trim() || null,
-        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        expires_at: getEvidenceExpirationIso(),
       });
 
       if (evidenceError) {
@@ -630,12 +670,22 @@ export function MatchRoom({ matchId }: { matchId: string }) {
       return;
     }
 
+    if (
+      !selectedReportScore ||
+      !validateSeriesScore(match.format, selectedReportScore.winnerScore, selectedReportScore.loserScore)
+    ) {
+      setError("Select a valid score for this match format.");
+      return;
+    }
+
     await runMatchAction(
       "report",
       async () => {
         const { error: rpcError } = await supabase.rpc("submit_match_report", {
           target_match: match.id,
           reported_winner: reportWinnerId,
+          reported_winner_score: selectedReportScore.winnerScore,
+          reported_loser_score: selectedReportScore.loserScore,
           report_notes: reportNotes.trim() || undefined,
         });
 
@@ -688,6 +738,19 @@ export function MatchRoom({ matchId }: { matchId: string }) {
       return;
     }
 
+    if (
+      resolutionAction === "confirm_winner" &&
+      (!selectedResolutionScore ||
+        !validateSeriesScore(
+          match.format,
+          selectedResolutionScore.winnerScore,
+          selectedResolutionScore.loserScore,
+        ))
+    ) {
+      setError("Select a valid final score for this match format.");
+      return;
+    }
+
     await runMatchAction(
       "resolve",
       async () => {
@@ -695,6 +758,10 @@ export function MatchRoom({ matchId }: { matchId: string }) {
           target_match: match.id,
           resolution_action: resolutionAction,
           selected_winner: resolutionAction === "confirm_winner" ? resolutionWinnerId : undefined,
+          selected_winner_score:
+            resolutionAction === "confirm_winner" ? selectedResolutionScore?.winnerScore : undefined,
+          selected_loser_score:
+            resolutionAction === "confirm_winner" ? selectedResolutionScore?.loserScore : undefined,
           resolution_notes: resolutionNote.trim() || undefined,
         });
 
@@ -880,6 +947,10 @@ export function MatchRoom({ matchId }: { matchId: string }) {
             <dd>{matchFormatLabels[match.format]}</dd>
           </div>
           <div>
+            <dt>Final Score</dt>
+            <dd>{finalScoreLabel ?? "Not finalized"}</dd>
+          </div>
+          <div>
             <dt>Player A Check-In</dt>
             <dd>
               {describeCheckInStatus(
@@ -946,7 +1017,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
       <section className="card">
         <div className="section-heading">
           <div>
-            <h2>Report Winner</h2>
+            <h2>Report Result</h2>
             <p className="muted">
               Each player chooses the winner. Matching reports finalize automatically; confirmed mismatches go to organizer review.
             </p>
@@ -962,12 +1033,15 @@ export function MatchRoom({ matchId }: { matchId: string }) {
           <p className="muted">This match does not need result reporting yet.</p>
         ) : match.status === "finalized" || match.status === "confirmed" ? (
           <p className="notice">
-            Result confirmed. {match.winner_id ? `${getProfileName(profileMap, match.winner_id) ?? "Winner"} advanced.` : "No winner was advanced."}
+            Result confirmed.{" "}
+            {match.winner_id
+              ? `${getProfileName(profileMap, match.winner_id) ?? "Winner"} advanced${finalScoreLabel ? ` ${finalScoreLabel}` : ""}.`
+              : "No winner was advanced."}
           </p>
         ) : openDispute ? (
           <p className="error">A dispute is open for organizer review.</p>
         ) : reportsMismatch ? (
-          <p className="error">Reports do not match. Please confirm or change your report.</p>
+          <p className="error">Reports do not match on winner or score. Please confirm or change your report.</p>
         ) : waitingForOpponentReport ? (
           <p className="notice">Your report was submitted. Waiting for opponent report.</p>
         ) : match.status === "replay_required" ? (
@@ -979,7 +1053,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
             <dt>{playerOneName}</dt>
             <dd>
               {playerOneReport
-                ? `${getReportedWinnerName(playerOneReport, profileMap) ?? "Player"} reported, ${getReportConfirmationLabel(playerOneReport).toLowerCase()}`
+                ? `${getReportedWinnerName(playerOneReport, profileMap) ?? "Player"} ${getReportedScoreLabel(playerOneReport) ?? "score pending"}, ${getReportConfirmationLabel(playerOneReport).toLowerCase()}`
                 : "No report"}
             </dd>
           </div>
@@ -987,7 +1061,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
             <dt>{playerTwoName}</dt>
             <dd>
               {playerTwoReport
-                ? `${getReportedWinnerName(playerTwoReport, profileMap) ?? "Player"} reported, ${getReportConfirmationLabel(playerTwoReport).toLowerCase()}`
+                ? `${getReportedWinnerName(playerTwoReport, profileMap) ?? "Player"} ${getReportedScoreLabel(playerTwoReport) ?? "score pending"}, ${getReportConfirmationLabel(playerTwoReport).toLowerCase()}`
                 : "No report"}
             </dd>
           </div>
@@ -1012,6 +1086,25 @@ export function MatchRoom({ matchId }: { matchId: string }) {
                   ) : null}
                 </select>
               </label>
+              <label htmlFor="reported-score">
+                Score
+                <select
+                  id="reported-score"
+                  disabled={!canReportResult}
+                  value={reportScoreKey}
+                  onChange={(event) => setReportScoreKey(event.target.value)}
+                >
+                  {scoreOptions.map((score) => {
+                    const scoreLabel = formatSeriesScore(score) ?? "";
+
+                    return (
+                      <option key={scoreLabel} value={scoreLabel}>
+                        {scoreLabel}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
             </div>
 
             <label className="wide-field" htmlFor="report-notes">
@@ -1029,7 +1122,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
             <div className="match-action-grid">
               <button
                 className="button"
-                disabled={!canReportResult || !reportWinnerId || savingAction === "report"}
+                disabled={!canReportResult || !reportWinnerId || !reportScoreKey || savingAction === "report"}
                 type="button"
                 onClick={submitResultReport}
               >
@@ -1049,7 +1142,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
 
             {reportsMismatch ? (
               <p className="muted">
-                Keep your answer if it is correct, or change the winner and submit again. If both players confirm different winners, organizer review opens.
+                Keep your answer if it is correct, or change the winner/score and submit again. If both players confirm different reports, organizer review opens.
               </p>
             ) : null}
           </div>
@@ -1135,7 +1228,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
                 </div>
               </div>
             ) : (
-              <p className="muted">Submit a winner report before uploading review evidence.</p>
+              <p className="muted">Submit a result report before uploading review evidence.</p>
             )
           ) : null}
 
@@ -1192,7 +1285,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
               {openDispute ? (
                 <p className="error">{openDispute.reason}</p>
               ) : reportsMismatch ? (
-                <p className="muted">Reports mismatch, but both players have not confirmed different winners yet.</p>
+                <p className="muted">Reports mismatch, but both players have not confirmed different reports yet.</p>
               ) : bothReportsSubmitted ? (
                 <p className="muted">Reports currently align or have already finalized.</p>
               ) : (
@@ -1205,7 +1298,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
               <dt>{playerOneName}</dt>
               <dd>
                 {playerOneReport
-                  ? `${getReportedWinnerName(playerOneReport, profileMap) ?? "Player"}; ${getReportConfirmationLabel(playerOneReport)}`
+                  ? `${getReportedWinnerName(playerOneReport, profileMap) ?? "Player"} ${getReportedScoreLabel(playerOneReport) ?? "score pending"}; ${getReportConfirmationLabel(playerOneReport)}`
                   : "No report"}
               </dd>
             </div>
@@ -1213,7 +1306,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
               <dt>{playerTwoName}</dt>
               <dd>
                 {playerTwoReport
-                  ? `${getReportedWinnerName(playerTwoReport, profileMap) ?? "Player"}; ${getReportConfirmationLabel(playerTwoReport)}`
+                  ? `${getReportedWinnerName(playerTwoReport, profileMap) ?? "Player"} ${getReportedScoreLabel(playerTwoReport) ?? "score pending"}; ${getReportConfirmationLabel(playerTwoReport)}`
                   : "No report"}
               </dd>
             </div>
@@ -1254,6 +1347,25 @@ export function MatchRoom({ matchId }: { matchId: string }) {
                 ) : null}
               </select>
             </label>
+            <label htmlFor="resolution-score">
+              Final Score
+              <select
+                id="resolution-score"
+                disabled={resolutionAction !== "confirm_winner"}
+                value={resolutionScoreKey}
+                onChange={(event) => setResolutionScoreKey(event.target.value)}
+              >
+                {scoreOptions.map((score) => {
+                  const scoreLabel = formatSeriesScore(score) ?? "";
+
+                  return (
+                    <option key={scoreLabel} value={scoreLabel}>
+                      {scoreLabel}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
           </div>
           <label className="wide-field" htmlFor="resolution-note">
             Resolution Note
@@ -1271,7 +1383,7 @@ export function MatchRoom({ matchId }: { matchId: string }) {
               disabled={
                 savingAction === "resolve" ||
                 match.status === "finalized" ||
-                (resolutionAction === "confirm_winner" && !resolutionWinnerId)
+                (resolutionAction === "confirm_winner" && (!resolutionWinnerId || !resolutionScoreKey))
               }
               type="button"
               onClick={resolveDispute}
