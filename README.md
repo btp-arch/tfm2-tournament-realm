@@ -91,7 +91,7 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - Profile auto-creation is handled in app code instead of a database trigger for this milestone, so profile defaults can be kept near the auth/profile UI. The `profiles` table still uses RLS and only allows users to insert or update their own row.
 - Player is the default experience. Organizer/admin role detection reads `platform_roles`.
 - `/organizer` requires organizer or admin access and lists tournaments the organizer can manage.
-- `/admin` requires admin access and includes profile search plus organizer/admin role management.
+- `/admin` requires admin access and is organized into Overview, Users, Tournaments, Disputes, and Records tabs.
 
 ## Tournament creation and registration
 
@@ -129,7 +129,11 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - Admins can close registration by setting status to `registration_closed`, and can reopen registration by setting status to `registration_open` only when the registration close time is in the future.
 - `/organizer` groups managed tournaments by status and links to manage/edit.
 - `/organizer` flags tournaments with result reports or disputes needing review.
-- `/admin` lists all tournaments with organizer, status, registered participant count, dashboard calendar visibility, tournament tier, and stat-exclusion state.
+- `/admin` Overview shows admin identity, active tournament count, review count, calendar-visible count, and links to common admin work areas.
+- `/admin` Users contains profile search plus organizer/admin role management.
+- `/admin` Tournaments lists all tournaments with organizer, status, registered participant count, dashboard calendar visibility, tournament tier, and stat-exclusion state.
+- `/admin` Disputes lists open match reviews from disputed or needs-admin match states and links to match rooms.
+- `/admin` Records is a review foundation that documents official vs overall record rules, source-data correction paths, and a player search placeholder for future computed records.
 - Admins control public dashboard calendar visibility from `/admin` tournament management. The dashboard reads only tournaments with `show_on_calendar = true`; organizers can still create and manage tournaments, but calendar placement is an admin decision.
 - Admins control tournament classification from `/admin` tournament management. Classification is separate from calendar visibility and uses `tournament_tier` values of `test`, `community`, `official`, or `championship`, plus `exclude_from_stats`.
 - Organizers can see classification state on organizer and tournament detail surfaces, but only admins can mark official/championship tiers or exclude tournaments from stats.

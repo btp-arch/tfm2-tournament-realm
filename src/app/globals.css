@@ -370,6 +370,78 @@ textarea {
   background: var(--blue-strong);
 }
 
+.admin-tabs {
+  display: flex;
+  gap: .45rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  margin: .5rem 0 1rem;
+  padding-bottom: .45rem;
+}
+
+.admin-tabs button {
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: .55rem .8rem;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.admin-tabs button:hover,
+.admin-tabs button.active {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.admin-stat-list {
+  display: grid;
+  gap: .7rem;
+  margin: 0;
+}
+
+.admin-stat-list div {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  border-top: 1px solid var(--border);
+  padding-top: .7rem;
+}
+
+.admin-stat-list div:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.admin-stat-list dt {
+  color: var(--muted);
+}
+
+.admin-stat-list dd {
+  margin: 0;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.admin-quick-actions,
+.record-rules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: .75rem;
+}
+
+.record-rules-grid > div {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+.record-rules-grid h3,
+.record-placeholder {
+  margin: 0;
+}
+
 .notice {
   color: var(--green);
 }
