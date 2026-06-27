@@ -19,6 +19,6 @@ export function formatError(error: unknown, fallback: string) {
 
 export function logError(context: string, error: unknown) {
   if (process.env.NODE_ENV !== "production") {
-    console.error(context, error);
+    console.warn(context, formatError(error, "Unknown error."), error);
   }
 }

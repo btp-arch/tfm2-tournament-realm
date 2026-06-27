@@ -77,6 +77,7 @@ Enable email/password authentication in Supabase Auth. If email confirmations ar
 - `http://localhost:3000`
 - `http://localhost:3000/auth`
 - `http://localhost:3000/profile`
+- `http://localhost:3000/players/[profile-id]`
 - `http://localhost:3000/organizer`
 - `http://localhost:3000/admin`
 
@@ -87,6 +88,7 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - `/auth` provides sign-in and sign-up with Supabase Auth.
 - The top navigation reads the browser session and shows `Sign In` when logged out, or `Profile` and `Sign Out` when logged in.
 - `/profile` redirects logged-out visitors to `/auth?redirectTo=/profile`.
+- `/players/[id]` is a public read-only player profile with computed record summaries and recent finalized match history.
 - On successful sign-in, sign-up with an active session, or first profile load, app code calls `ensureProfile` to create the authenticated user's `profiles` row if it does not already exist.
 - Profile auto-creation is handled in app code instead of a database trigger for this milestone, so profile defaults can be kept near the auth/profile UI. The `profiles` table still uses RLS and only allows users to insert or update their own row.
 - Player is the default experience. Organizer/admin role detection reads `platform_roles`.
@@ -97,7 +99,7 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 
 - Organizers and admins can open `/tournaments/create` to create free-entry tournaments.
 - The creator is inserted into `tournament_organizers` after tournament creation.
-- V1 supports `single_elimination` tournaments and BO1/BO3/BO5 match formats.
+- V1 supports `single_elimination` and `group_stage_playoff` tournaments. Single-elimination matches support BO1/BO3/BO5; group-stage matches support BO1/BO3.
 - Public visitors can browse public tournament statuses on `/tournaments` and `/tournaments/[id]`.
 - Signed-in players can register themselves while status is `registration_open`, capacity is available, and the registration close time has not passed.
 - Registered players can withdraw themselves before registration closes.
@@ -116,12 +118,22 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 ### Tournament management
 
 - Organizers and admins can edit tournament details from `/tournaments/[id]/edit`.
-- Editable fields include title, description, scheduled start time, registration close time, max participants, tournament format, match format, rules, external community link, and status.
+- Editable fields include title, description, scheduled start time, registration close time, tournament format, derived bracket/group capacity, pre-semifinal/semifinal/final match formats, rules, external community link, and status.
+- Capacity is derived from tournament structure. Single-elimination capacity comes from the selected bracket size; group-stage capacity comes from `group_size * groups_count`.
 - Tournament detail pages use compact tabs for Overview, Players, Bracket, Matches, Rules, and staff-only Organizer/Admin controls.
 - The Bracket tab renders generated single-elimination rounds as horizontal columns with fixed-size match cards, increasing per-round vertical spacing, subtle connector lines, BYE/TBD structural cards, playable match-room links only for real matches, and a champion card when a completed winner is known.
 - Staff event-flow, bracket setup/reset, cancel, delete, and admin override controls live in the Organizer/Admin tab.
 - Normal organizer start requires status `check_in`, a generated bracket size that can hold the field, and at least 2 checked-in players.
 - Generating the bracket also starts the tournament by moving status to `active`.
+- Group-stage playoff tournaments support 4-player or 8-player groups, top 1/top 2/top 3/top 4 qualifiers per group, and 4/8/16/32/64 player single-elimination playoff brackets.
+- Total configured qualifiers map to the smallest supported playoff bracket that can contain them. Extra playoff slots become playoff BYEs for the highest seeds.
+- Empty group slots are BYE/no-match off-slots. They do not create group matches, standings wins, public records, or game stats.
+- Organizer/Admin controls can generate the group draw, create all group round-robin match rooms, reset the draw before group matches start, mark group matches as FF, set manual qualifier overrides, and generate the playoff bracket after groups complete.
+- The Groups tab shows group members, compact standings, group matches, qualifier status, and tiebreaker-needed indicators. The Bracket tab shows the playoff bracket after generation.
+- Group standings sort by match wins, simple two-player head-to-head where available, game differential, and games won. Unresolved cutoff ties require organizer/admin qualifier override before playoff generation.
+- Playoff seeding uses group placement bands first: all group winners seed before second-place finishers, then third-place, then fourth-place. Within a placement band, seeding uses match wins, game differential, games won, forfeit losses ascending, draw seed, and deterministic fallback.
+- Playoff placement uses best-effort same-group separation. Same-group first-round rematches are avoided when practical; perfect separation is not guaranteed when the field shape makes it impossible.
+- Playoff and single-elimination round formats are stored as three defaults: pre-semifinal rounds, semifinal, and final. Each can be BO1, BO3, or BO5.
 - Cancel sets the tournament status to `cancelled`, keeps the tournament visible in history, and prevents new registration.
 - Organizer delete is limited to tournaments they created that are still empty drafts.
 - Admins have a platform-owner delete override for any tournament. The admin delete UI shows the tournament title, status, active participant count, total registration records, and requires typing `DELETE`. Cancel is still preferred for real events with participants.
@@ -133,18 +145,23 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - `/admin` Users contains profile search plus organizer/admin role management.
 - `/admin` Tournaments lists all tournaments with organizer, status, registered participant count, dashboard calendar visibility, tournament tier, and stat-exclusion state.
 - `/admin` Disputes lists open match reviews from disputed or needs-admin match states and links to match rooms.
-- `/admin` Records is a review foundation that documents official vs overall record rules, source-data correction paths, and a player search placeholder for future computed records.
+- `/admin` Records documents official vs overall record rules, links to public player profiles, and shows computed summaries from finalized source data for searched players.
 - Admins control public dashboard calendar visibility from `/admin` tournament management. The dashboard reads only tournaments with `show_on_calendar = true`; organizers can still create and manage tournaments, but calendar placement is an admin decision.
 - Admins control tournament classification from `/admin` tournament management. Classification is separate from calendar visibility and uses `tournament_tier` values of `test`, `community`, `official`, or `championship`, plus `exclude_from_stats`.
 - Organizers can see classification state on organizer and tournament detail surfaces, but only admins can mark official/championship tiers or exclude tournaments from stats.
 
-### Tournament records foundation
+### Player records and match history
 
-- Public player record pages are not implemented yet.
-- Future official records should count only tournaments where `tournament_tier` is `official` or `championship`.
-- Future overall records should count tournaments where `tournament_tier` is `community`, `official`, or `championship`.
-- `test` tournaments should not count toward public player records.
-- If `exclude_from_stats` is true, the tournament should be excluded from both official and overall public stats regardless of tier.
+- Public player record pages live at `/players/[id]`; `/profile` remains the signed-in user's editable profile.
+- Records are computed from source tournament and match rows. There are no manual W-L override fields.
+- Official Record counts finalized real player-vs-player matches from `official` and `championship` tournaments when `exclude_from_stats` is false.
+- Overall Record counts finalized real player-vs-player matches from `community`, `official`, and `championship` tournaments when `exclude_from_stats` is false.
+- `test` tournaments and tournaments with `exclude_from_stats = true` do not count toward official or overall records.
+- Group BYEs, playoff BYEs, forfeits/FF, TBD placeholders, replay-required matches, no-contests, unresolved disputes, admin overrides, and unfinalized matches do not count as match wins/losses, game wins/losses, or match history entries.
+- Played group-stage matches count toward official/overall records under the same tournament tier and stat-exclusion rules as playoff matches.
+- Game W-L uses the finalized series score from `final_winner_score` and `final_loser_score`, shown from the profile player's perspective.
+- Tournament wins and finals appearances are derived from finalized single-elimination bracket rounds when practical.
+- Admin corrections should update source data: tournament tier, `exclude_from_stats`, match winner, final score, dispute resolution, replay, or no-contest state.
 - Dashboard calendar visibility remains controlled only by `show_on_calendar`. A tournament can be calendar-visible without being official, and official/championship tournaments can be hidden from the dashboard calendar.
 
 ### Player dashboard and calendar
@@ -155,7 +172,7 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - Calendar cards show scheduled start time, tournament name, status, registered/max players, official/championship tier badges when applicable, and winner information for completed tournaments when a finalized winner can be derived from the bracket.
 - Signed-in users also see `My Events`, which lists their registered tournaments and active match rooms without admin/organizer controls.
 - Signed-out users see the public calendar plus a compact getting-started checklist.
-- `Recent Winners` lists recently completed calendar-visible tournaments. Winner names are derived from the highest-round completed match with a winner, so older completed tournaments without finalized match data may show the winner as pending.
+- `Recent Winners` lists recently completed calendar-visible tournaments. Winner names link to public player profiles when a finalized winner can be derived from the bracket, so older completed tournaments without finalized match data may show the winner as pending.
 
 ### Results, evidence, and disputes
 
@@ -167,16 +184,17 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - If the winner or score differs, both players see a mismatch confirmation state. A player can change their report; if reports align, the match finalizes.
 - If both players confirm different reports, a dispute opens for organizer/admin review.
 - Staff can resolve review by confirming a winner with a final score, requiring replay, or marking no contest. Confirming a winner finalizes the match and advances that player.
+- Group-stage FF is an organizer/admin result. FF gives the non-forfeiting player a group-standings match win and the forfeiting player a group-standings match loss, displays as FF/Forfeit, and does not add public match/game record stats.
 - Evidence upload appears only in review contexts, such as an open dispute or organizer/admin review panel.
 - Evidence uploads use the private `match-evidence` Supabase Storage bucket. Images are limited to PNG, JPG/JPEG, or WEBP, 5 MB each, and 3 uploads per player report.
 - Evidence metadata stores match/report/user, type, file path/name, MIME type, size, notes, `expires_at`, and `retained_by_admin`. The MVP records a 30-day expiration timestamp but does not run automatic cleanup yet.
-- BYEs are structural bracket advancement only. They may display as advanced by BYE, but they do not count toward match history, official record, overall record, wins/losses, or game wins/losses.
+- Group BYEs are no-match off-slots. Playoff BYEs are structural bracket advancement only. They may display as advanced by BYE, but they do not count toward match history, official record, overall record, wins/losses, or game wins/losses.
 
 ### Live UX and notifications
 
 - Match setup is locked after a match moves past `awaiting_host_setup`, after lobby setup completes, after result reports exist, or after review/finalization begins. Staff must use the explicit reset action to recover setup.
 - In-app notifications are stored in the private `notifications` table. Users can read/update/delete their own notifications; admins can manage notifications through RLS.
-- Database triggers create notifications for tournament check-in opening, opponent check-in, match room ready, host assignment, result reporting needed, report mismatch, dispute opened/resolved, and player advancement.
+- Database triggers create notifications for tournament check-in opening, group draw generated, group match ready, playoff bracket generated, opponent check-in, match room ready, host assignment, result reporting needed, report mismatch, dispute opened/resolved, and player advancement.
 - The top navigation includes a notifications menu with unread count, recent items, and mark-all-read.
 - `/notifications` shows notification history with per-item and mark-all-read controls.
 - A site-wide active action banner polls for the highest-priority signed-in user action and links directly to the tournament or match.

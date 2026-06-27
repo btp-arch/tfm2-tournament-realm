@@ -6,12 +6,20 @@ import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { AccessDenied } from "@/components/access-denied";
 import { formatError, logError } from "@/lib/errors";
+import { bracketSizes } from "@/lib/brackets";
+import {
+  getGroupStageFormatSummary,
+  validateGroupStageFormat,
+} from "@/lib/group-stage";
 import { ensureProfile } from "@/lib/profiles";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
 import {
   editableTournamentStatuses,
+  groupSizes,
+  groupStageMatchFormats,
   getRegistrationReopenBlockedReason,
+  qualifiersPerGroupOptions,
   matchFormats,
   matchFormatLabels,
   normalizeOptionalText,
@@ -32,9 +40,15 @@ type TournamentFormState = {
   description: string;
   startsAt: string;
   registrationClosesAt: string;
-  maxPlayers: string;
   tournamentFormat: TournamentFormat;
-  matchFormat: MatchFormat;
+  singleEliminationBracketSize: string;
+  groupSize: string;
+  groupsCount: string;
+  qualifiersPerGroup: string;
+  groupStageFormat: MatchFormat;
+  preSemifinalFormat: MatchFormat;
+  semifinalFormat: MatchFormat;
+  finalFormat: MatchFormat;
   rules: string;
   externalCommunityUrl: string;
   status: TournamentStatus;
@@ -51,9 +65,15 @@ function toFormState(tournament: TournamentRow): TournamentFormState {
     description: tournament.description ?? "",
     startsAt: toLocalDateTimeInput(tournament.starts_at),
     registrationClosesAt: toLocalDateTimeInput(tournament.registration_closes_at),
-    maxPlayers: tournament.max_players?.toString() ?? "",
     tournamentFormat: tournament.tournament_format,
-    matchFormat: tournament.format,
+    singleEliminationBracketSize: tournament.max_players?.toString() ?? "16",
+    groupSize: tournament.group_size?.toString() ?? "4",
+    groupsCount: tournament.groups_count?.toString() ?? "4",
+    qualifiersPerGroup: tournament.qualifiers_per_group?.toString() ?? "1",
+    groupStageFormat: tournament.group_stage_format ?? "bo1",
+    preSemifinalFormat: tournament.pre_semifinal_match_format ?? tournament.format,
+    semifinalFormat: tournament.semifinal_match_format ?? "bo3",
+    finalFormat: tournament.final_match_format ?? "bo5",
     rules: tournament.rules ?? "",
     externalCommunityUrl: tournament.external_community_url ?? "",
     status: editableTournamentStatuses.includes(tournament.status)
@@ -176,7 +196,14 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
     const title = formState.title.trim();
     const startsAt = toIsoFromLocalInput(formState.startsAt);
     const registrationClosesAt = toIsoFromLocalInput(formState.registrationClosesAt);
-    const maxPlayers = Number.parseInt(formState.maxPlayers, 10);
+    const singleEliminationBracketSize = Number.parseInt(formState.singleEliminationBracketSize, 10);
+    const groupSize = Number.parseInt(formState.groupSize, 10);
+    const groupsCount = Number.parseInt(formState.groupsCount, 10);
+    const qualifiersPerGroup = Number.parseInt(formState.qualifiersPerGroup, 10);
+    const maxPlayers =
+      formState.tournamentFormat === "group_stage_playoff"
+        ? groupSize * groupsCount
+        : singleEliminationBracketSize;
 
     if (title.length < 3 || title.length > 120) {
       setError("Title must be between 3 and 120 characters.");
@@ -204,14 +231,31 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
       }
     }
 
-    if (!Number.isInteger(maxPlayers) || maxPlayers < 2) {
-      setError("Max participants must be at least 2.");
+    if (
+      formState.tournamentFormat === "single_elimination" &&
+      !bracketSizes.includes(singleEliminationBracketSize as (typeof bracketSizes)[number])
+    ) {
+      setError("Select a supported single-elimination bracket size.");
       return;
     }
 
     if (maxPlayers < activeRegistrationCount) {
       setError("Max participants cannot be lower than the current registered participant count.");
       return;
+    }
+
+    if (formState.tournamentFormat === "group_stage_playoff") {
+      const validationError = validateGroupStageFormat({
+        groupSize,
+        groupsCount,
+        maxPlayers,
+        qualifiersPerGroup,
+      });
+
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
     }
 
     setIsSaving(true);
@@ -228,7 +272,16 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
           registration_closes_at: registrationClosesAt,
           max_players: maxPlayers,
           tournament_format: formState.tournamentFormat,
-          format: formState.matchFormat,
+          group_size: formState.tournamentFormat === "group_stage_playoff" ? groupSize : null,
+          groups_count: formState.tournamentFormat === "group_stage_playoff" ? groupsCount : null,
+          qualifiers_per_group:
+            formState.tournamentFormat === "group_stage_playoff" ? qualifiersPerGroup : null,
+          group_stage_format:
+            formState.tournamentFormat === "group_stage_playoff" ? formState.groupStageFormat : null,
+          format: formState.preSemifinalFormat,
+          pre_semifinal_match_format: formState.preSemifinalFormat,
+          semifinal_match_format: formState.semifinalFormat,
+          final_match_format: formState.finalFormat,
           rules: normalizeOptionalText(formState.rules),
           external_community_url: normalizeOptionalText(formState.externalCommunityUrl),
           status: formState.status,
@@ -333,18 +386,6 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
           </div>
 
           <div className="form-grid">
-            <label htmlFor="max-players">
-              Max participants
-              <input
-                id="max-players"
-                required
-                min={Math.max(2, activeRegistrationCount)}
-                type="number"
-                value={formState.maxPlayers}
-                onChange={(event) => updateField("maxPlayers", event.target.value)}
-              />
-            </label>
-
             <label htmlFor="status">
               Status
               <select
@@ -359,6 +400,16 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
                 ))}
               </select>
             </label>
+            <div className="readonly-field">
+              <span>Capacity</span>
+              <strong>
+                {formState.tournamentFormat === "group_stage_playoff"
+                  ? Number.parseInt(formState.groupSize || "0", 10) *
+                    Number.parseInt(formState.groupsCount || "0", 10)
+                  : Number.parseInt(formState.singleEliminationBracketSize || "0", 10)}{" "}
+                players
+              </strong>
+            </div>
           </div>
 
           <p className="muted">
@@ -383,12 +434,63 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
               </select>
             </label>
 
-            <label htmlFor="match-format">
-              Match format
+            {formState.tournamentFormat === "single_elimination" ? (
+              <label htmlFor="single-elimination-bracket-size">
+                Bracket size
+                <select
+                  id="single-elimination-bracket-size"
+                  value={formState.singleEliminationBracketSize}
+                  onChange={(event) => updateField("singleEliminationBracketSize", event.target.value)}
+                >
+                  {bracketSizes.map((size) => (
+                    <option key={size} value={size}>
+                      {size} players
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+
+          <div className="form-grid">
+            <label htmlFor="pre-semifinal-format">
+              Pre-semifinal rounds
               <select
-                id="match-format"
-                value={formState.matchFormat}
-                onChange={(event) => updateField("matchFormat", event.target.value as MatchFormat)}
+                id="pre-semifinal-format"
+                value={formState.preSemifinalFormat}
+                onChange={(event) =>
+                  updateField("preSemifinalFormat", event.target.value as MatchFormat)
+                }
+              >
+                {matchFormats.map((format) => (
+                  <option key={format} value={format}>
+                    {matchFormatLabels[format]}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label htmlFor="semifinal-format">
+              Semifinal
+              <select
+                id="semifinal-format"
+                value={formState.semifinalFormat}
+                onChange={(event) => updateField("semifinalFormat", event.target.value as MatchFormat)}
+              >
+                {matchFormats.map((format) => (
+                  <option key={format} value={format}>
+                    {matchFormatLabels[format]}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label htmlFor="final-format">
+              Final
+              <select
+                id="final-format"
+                value={formState.finalFormat}
+                onChange={(event) => updateField("finalFormat", event.target.value as MatchFormat)}
               >
                 {matchFormats.map((format) => (
                   <option key={format} value={format}>
@@ -398,6 +500,81 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
               </select>
             </label>
           </div>
+
+          {formState.tournamentFormat === "group_stage_playoff" ? (
+            <>
+              <div className="form-grid">
+                <label htmlFor="group-size">
+                  Group size
+                  <select
+                    id="group-size"
+                    value={formState.groupSize}
+                    onChange={(event) => updateField("groupSize", event.target.value)}
+                  >
+                    {groupSizes.map((size) => (
+                      <option key={size} value={size}>
+                        {size} players
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label htmlFor="groups-count">
+                  Number of groups
+                  <input
+                    id="groups-count"
+                    min={1}
+                    required
+                    type="number"
+                    value={formState.groupsCount}
+                    onChange={(event) => updateField("groupsCount", event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="form-grid">
+                <label htmlFor="qualifiers-per-group">
+                  Qualifiers per group
+                  <select
+                    id="qualifiers-per-group"
+                    value={formState.qualifiersPerGroup}
+                    onChange={(event) => updateField("qualifiersPerGroup", event.target.value)}
+                  >
+                    {qualifiersPerGroupOptions.map((count) => (
+                      <option key={count} value={count}>
+                        Top {count}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label htmlFor="group-stage-format">
+                  Group match format
+                  <select
+                    id="group-stage-format"
+                    value={formState.groupStageFormat}
+                    onChange={(event) =>
+                      updateField("groupStageFormat", event.target.value as MatchFormat)
+                    }
+                  >
+                    {groupStageMatchFormats.map((format) => (
+                      <option key={format} value={format}>
+                        {matchFormatLabels[format]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <p className="muted">
+                {getGroupStageFormatSummary({
+                  groupsCount: Number.parseInt(formState.groupsCount || "0", 10),
+                  qualifiersPerGroup: Number.parseInt(formState.qualifiersPerGroup || "0", 10),
+                })}
+                . Empty group slots become BYE/no-match slots.
+              </p>
+            </>
+          ) : null}
 
           <label htmlFor="rules">
             Rules

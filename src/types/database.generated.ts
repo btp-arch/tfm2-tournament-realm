@@ -505,6 +505,7 @@ export type Database = {
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
+          group_id: string | null
           guest_joined_at: string | null
           host_side_choice: Database["public"]["Enums"]["side_choice"] | null
           host_user_id: string | null
@@ -518,6 +519,7 @@ export type Database = {
           player_two_seed: number | null
           player_two_slot: number | null
           result_reported_at: string | null
+          result_type: Database["public"]["Enums"]["match_result_type"]
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -538,6 +540,7 @@ export type Database = {
           finalized_by?: string | null
           format?: Database["public"]["Enums"]["match_format"]
           game_created_at?: string | null
+          group_id?: string | null
           guest_joined_at?: string | null
           host_side_choice?: Database["public"]["Enums"]["side_choice"] | null
           host_user_id?: string | null
@@ -551,6 +554,7 @@ export type Database = {
           player_two_seed?: number | null
           player_two_slot?: number | null
           result_reported_at?: string | null
+          result_type?: Database["public"]["Enums"]["match_result_type"]
           round_id?: string | null
           round_number?: number
           scheduled_at?: string | null
@@ -571,6 +575,7 @@ export type Database = {
           finalized_by?: string | null
           format?: Database["public"]["Enums"]["match_format"]
           game_created_at?: string | null
+          group_id?: string | null
           guest_joined_at?: string | null
           host_side_choice?: Database["public"]["Enums"]["side_choice"] | null
           host_user_id?: string | null
@@ -584,6 +589,7 @@ export type Database = {
           player_two_seed?: number | null
           player_two_slot?: number | null
           result_reported_at?: string | null
+          result_type?: Database["public"]["Enums"]["match_result_type"]
           round_id?: string | null
           round_number?: number
           scheduled_at?: string | null
@@ -607,6 +613,13 @@ export type Database = {
             columns: ["finalized_by"]
             isOneToOne: false
             referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_groups"
             referencedColumns: ["id"]
           },
           {
@@ -974,6 +987,142 @@ export type Database = {
           },
         ]
       }
+      tournament_group_members: {
+        Row: {
+          created_at: string
+          draw_position: number
+          group_id: string
+          id: string
+          is_bye: boolean
+          qualifier_seed: number | null
+          seed: number
+          tournament_id: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          draw_position: number
+          group_id: string
+          id?: string
+          is_bye?: boolean
+          qualifier_seed?: number | null
+          seed: number
+          tournament_id: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          draw_position?: number
+          group_id?: string
+          id?: string
+          is_bye?: boolean
+          qualifier_seed?: number | null
+          seed?: number
+          tournament_id?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tournament_group_members_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_group_members_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_group_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_group_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tournament_groups: {
+        Row: {
+          created_at: string
+          draw_method: Database["public"]["Enums"]["tournament_seeding_method"]
+          generated_at: string
+          generated_by: string | null
+          group_number: number
+          id: string
+          name: string
+          stage_id: string
+          tournament_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          draw_method?: Database["public"]["Enums"]["tournament_seeding_method"]
+          generated_at?: string
+          generated_by?: string | null
+          group_number: number
+          id?: string
+          name: string
+          stage_id: string
+          tournament_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          draw_method?: Database["public"]["Enums"]["tournament_seeding_method"]
+          generated_at?: string
+          generated_by?: string | null
+          group_number?: number
+          id?: string
+          name?: string
+          stage_id?: string
+          tournament_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tournament_groups_generated_by_fkey"
+            columns: ["generated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_groups_generated_by_fkey"
+            columns: ["generated_by"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_groups_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_stages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_groups_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tournament_organizers: {
         Row: {
           created_at: string
@@ -1182,14 +1331,21 @@ export type Database = {
           description: string | null
           exclude_from_stats: boolean
           external_community_url: string | null
+          final_match_format: Database["public"]["Enums"]["match_format"]
           format: Database["public"]["Enums"]["match_format"]
+          group_size: number | null
+          group_stage_format: Database["public"]["Enums"]["match_format"] | null
+          groups_count: number | null
           id: string
           max_players: number | null
           name: string
           official_marked_at: string | null
           official_marked_by: string | null
+          pre_semifinal_match_format: Database["public"]["Enums"]["match_format"]
+          qualifiers_per_group: number | null
           registration_closes_at: string | null
           rules: string | null
+          semifinal_match_format: Database["public"]["Enums"]["match_format"]
           show_on_calendar: boolean
           slug: string
           starts_at: string | null
@@ -1204,14 +1360,23 @@ export type Database = {
           description?: string | null
           exclude_from_stats?: boolean
           external_community_url?: string | null
+          final_match_format?: Database["public"]["Enums"]["match_format"]
           format?: Database["public"]["Enums"]["match_format"]
+          group_size?: number | null
+          group_stage_format?:
+            | Database["public"]["Enums"]["match_format"]
+            | null
+          groups_count?: number | null
           id?: string
           max_players?: number | null
           name: string
           official_marked_at?: string | null
           official_marked_by?: string | null
+          pre_semifinal_match_format?: Database["public"]["Enums"]["match_format"]
+          qualifiers_per_group?: number | null
           registration_closes_at?: string | null
           rules?: string | null
+          semifinal_match_format?: Database["public"]["Enums"]["match_format"]
           show_on_calendar?: boolean
           slug: string
           starts_at?: string | null
@@ -1226,14 +1391,23 @@ export type Database = {
           description?: string | null
           exclude_from_stats?: boolean
           external_community_url?: string | null
+          final_match_format?: Database["public"]["Enums"]["match_format"]
           format?: Database["public"]["Enums"]["match_format"]
+          group_size?: number | null
+          group_stage_format?:
+            | Database["public"]["Enums"]["match_format"]
+            | null
+          groups_count?: number | null
           id?: string
           max_players?: number | null
           name?: string
           official_marked_at?: string | null
           official_marked_by?: string | null
+          pre_semifinal_match_format?: Database["public"]["Enums"]["match_format"]
+          qualifiers_per_group?: number | null
           registration_closes_at?: string | null
           rules?: string | null
+          semifinal_match_format?: Database["public"]["Enums"]["match_format"]
           show_on_calendar?: boolean
           slug?: string
           starts_at?: string | null
@@ -1277,16 +1451,22 @@ export type Database = {
     Views: {
       public_profiles: {
         Row: {
+          discord_username: string | null
           display_name: string | null
           id: string | null
+          steam_profile_url: string | null
         }
         Insert: {
+          discord_username?: string | null
           display_name?: string | null
           id?: string | null
+          steam_profile_url?: string | null
         }
         Update: {
+          discord_username?: string | null
           display_name?: string | null
           id?: string | null
+          steam_profile_url?: string | null
         }
         Relationships: []
       }
@@ -1323,6 +1503,7 @@ export type Database = {
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
+          group_id: string | null
           guest_joined_at: string | null
           host_side_choice: Database["public"]["Enums"]["side_choice"] | null
           host_user_id: string | null
@@ -1336,6 +1517,7 @@ export type Database = {
           player_two_seed: number | null
           player_two_slot: number | null
           result_reported_at: string | null
+          result_type: Database["public"]["Enums"]["match_result_type"]
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1365,6 +1547,7 @@ export type Database = {
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
+          group_id: string | null
           guest_joined_at: string | null
           host_side_choice: Database["public"]["Enums"]["side_choice"] | null
           host_user_id: string | null
@@ -1378,6 +1561,7 @@ export type Database = {
           player_two_seed: number | null
           player_two_slot: number | null
           result_reported_at: string | null
+          result_type: Database["public"]["Enums"]["match_result_type"]
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1394,6 +1578,10 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      auto_generate_group_playoff: {
+        Args: { actor?: string; target_tournament: string }
+        Returns: boolean
       }
       can_check_in_for_tournament: {
         Args: { player: string; tournament: string }
@@ -1416,6 +1604,7 @@ export type Database = {
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
+          group_id: string | null
           guest_joined_at: string | null
           host_side_choice: Database["public"]["Enums"]["side_choice"] | null
           host_user_id: string | null
@@ -1429,6 +1618,7 @@ export type Database = {
           player_two_seed: number | null
           player_two_slot: number | null
           result_reported_at: string | null
+          result_type: Database["public"]["Enums"]["match_result_type"]
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1461,6 +1651,7 @@ export type Database = {
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
+          group_id: string | null
           guest_joined_at: string | null
           host_side_choice: Database["public"]["Enums"]["side_choice"] | null
           host_user_id: string | null
@@ -1474,6 +1665,7 @@ export type Database = {
           player_two_seed: number | null
           player_two_slot: number | null
           result_reported_at: string | null
+          result_type: Database["public"]["Enums"]["match_result_type"]
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1503,6 +1695,7 @@ export type Database = {
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
+          group_id: string | null
           guest_joined_at: string | null
           host_side_choice: Database["public"]["Enums"]["side_choice"] | null
           host_user_id: string | null
@@ -1516,6 +1709,7 @@ export type Database = {
           player_two_seed: number | null
           player_two_slot: number | null
           result_reported_at: string | null
+          result_type: Database["public"]["Enums"]["match_result_type"]
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1545,6 +1739,7 @@ export type Database = {
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
+          group_id: string | null
           guest_joined_at: string | null
           host_side_choice: Database["public"]["Enums"]["side_choice"] | null
           host_user_id: string | null
@@ -1558,6 +1753,7 @@ export type Database = {
           player_two_seed: number | null
           player_two_slot: number | null
           result_reported_at: string | null
+          result_type: Database["public"]["Enums"]["match_result_type"]
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1593,6 +1789,7 @@ export type Database = {
               finalized_by: string | null
               format: Database["public"]["Enums"]["match_format"]
               game_created_at: string | null
+              group_id: string | null
               guest_joined_at: string | null
               host_side_choice:
                 | Database["public"]["Enums"]["side_choice"]
@@ -1608,6 +1805,7 @@ export type Database = {
               player_two_seed: number | null
               player_two_slot: number | null
               result_reported_at: string | null
+              result_type: Database["public"]["Enums"]["match_result_type"]
               round_id: string | null
               round_number: number
               scheduled_at: string | null
@@ -1644,6 +1842,7 @@ export type Database = {
               finalized_by: string | null
               format: Database["public"]["Enums"]["match_format"]
               game_created_at: string | null
+              group_id: string | null
               guest_joined_at: string | null
               host_side_choice:
                 | Database["public"]["Enums"]["side_choice"]
@@ -1659,6 +1858,7 @@ export type Database = {
               player_two_seed: number | null
               player_two_slot: number | null
               result_reported_at: string | null
+              result_type: Database["public"]["Enums"]["match_result_type"]
               round_id: string | null
               round_number: number
               scheduled_at: string | null
@@ -1676,6 +1876,30 @@ export type Database = {
               isSetofReturn: false
             }
           }
+      get_bracket_round_count: {
+        Args: { bracket_size: number }
+        Returns: number
+      }
+      get_bracket_round_name: {
+        Args: { bracket_size: number; round_number: number }
+        Returns: string
+      }
+      get_bracket_seed_order: {
+        Args: { bracket_size: number }
+        Returns: number[]
+      }
+      get_playoff_bracket_size: {
+        Args: { player_count: number }
+        Returns: number
+      }
+      get_tournament_round_format: {
+        Args: {
+          bracket_size: number
+          round_number: number
+          tournament_record: Database["public"]["Tables"]["tournaments"]["Row"]
+        }
+        Returns: Database["public"]["Enums"]["match_format"]
+      }
       insert_notification_once: {
         Args: {
           match_id: string
@@ -1709,8 +1933,8 @@ export type Database = {
         Returns: boolean
       }
       mark_all_notifications_read: { Args: never; Returns: number }
-      mark_match_game_created: {
-        Args: { target_match: string }
+      mark_group_match_forfeit: {
+        Args: { forfeiting_player: string; target_match: string }
         Returns: {
           bracket_position: number | null
           check_in_opens_at: string | null
@@ -1721,6 +1945,7 @@ export type Database = {
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
+          group_id: string | null
           guest_joined_at: string | null
           host_side_choice: Database["public"]["Enums"]["side_choice"] | null
           host_user_id: string | null
@@ -1734,6 +1959,51 @@ export type Database = {
           player_two_seed: number | null
           player_two_slot: number | null
           result_reported_at: string | null
+          result_type: Database["public"]["Enums"]["match_result_type"]
+          round_id: string | null
+          round_number: number
+          scheduled_at: string | null
+          setup_deadline_at: string | null
+          stage_id: string | null
+          status: Database["public"]["Enums"]["match_status"]
+          tournament_id: string
+          updated_at: string
+          winner_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "matches"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      mark_match_game_created: {
+        Args: { target_match: string }
+        Returns: {
+          bracket_position: number | null
+          check_in_opens_at: string | null
+          created_at: string
+          final_loser_score: number | null
+          final_winner_score: number | null
+          finalized_at: string | null
+          finalized_by: string | null
+          format: Database["public"]["Enums"]["match_format"]
+          game_created_at: string | null
+          group_id: string | null
+          guest_joined_at: string | null
+          host_side_choice: Database["public"]["Enums"]["side_choice"] | null
+          host_user_id: string | null
+          id: string
+          join_deadline_at: string | null
+          match_number: number | null
+          player_one_id: string | null
+          player_one_seed: number | null
+          player_one_slot: number | null
+          player_two_id: string | null
+          player_two_seed: number | null
+          player_two_slot: number | null
+          result_reported_at: string | null
+          result_type: Database["public"]["Enums"]["match_result_type"]
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1763,6 +2033,7 @@ export type Database = {
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
+          group_id: string | null
           guest_joined_at: string | null
           host_side_choice: Database["public"]["Enums"]["side_choice"] | null
           host_user_id: string | null
@@ -1776,6 +2047,7 @@ export type Database = {
           player_two_seed: number | null
           player_two_slot: number | null
           result_reported_at: string | null
+          result_type: Database["public"]["Enums"]["match_result_type"]
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1816,6 +2088,7 @@ export type Database = {
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
+          group_id: string | null
           guest_joined_at: string | null
           host_side_choice: Database["public"]["Enums"]["side_choice"] | null
           host_user_id: string | null
@@ -1829,6 +2102,7 @@ export type Database = {
           player_two_seed: number | null
           player_two_slot: number | null
           result_reported_at: string | null
+          result_type: Database["public"]["Enums"]["match_result_type"]
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1865,6 +2139,7 @@ export type Database = {
           finalized_by: string | null
           format: Database["public"]["Enums"]["match_format"]
           game_created_at: string | null
+          group_id: string | null
           guest_joined_at: string | null
           host_side_choice: Database["public"]["Enums"]["side_choice"] | null
           host_user_id: string | null
@@ -1878,6 +2153,7 @@ export type Database = {
           player_two_seed: number | null
           player_two_slot: number | null
           result_reported_at: string | null
+          result_type: Database["public"]["Enums"]["match_result_type"]
           round_id: string | null
           round_number: number
           scheduled_at: string | null
@@ -1903,14 +2179,21 @@ export type Database = {
           description: string | null
           exclude_from_stats: boolean
           external_community_url: string | null
+          final_match_format: Database["public"]["Enums"]["match_format"]
           format: Database["public"]["Enums"]["match_format"]
+          group_size: number | null
+          group_stage_format: Database["public"]["Enums"]["match_format"] | null
+          groups_count: number | null
           id: string
           max_players: number | null
           name: string
           official_marked_at: string | null
           official_marked_by: string | null
+          pre_semifinal_match_format: Database["public"]["Enums"]["match_format"]
+          qualifiers_per_group: number | null
           registration_closes_at: string | null
           rules: string | null
+          semifinal_match_format: Database["public"]["Enums"]["match_format"]
           show_on_calendar: boolean
           slug: string
           starts_at: string | null
@@ -1938,14 +2221,21 @@ export type Database = {
           description: string | null
           exclude_from_stats: boolean
           external_community_url: string | null
+          final_match_format: Database["public"]["Enums"]["match_format"]
           format: Database["public"]["Enums"]["match_format"]
+          group_size: number | null
+          group_stage_format: Database["public"]["Enums"]["match_format"] | null
+          groups_count: number | null
           id: string
           max_players: number | null
           name: string
           official_marked_at: string | null
           official_marked_by: string | null
+          pre_semifinal_match_format: Database["public"]["Enums"]["match_format"]
+          qualifiers_per_group: number | null
           registration_closes_at: string | null
           rules: string | null
+          semifinal_match_format: Database["public"]["Enums"]["match_format"]
           show_on_calendar: boolean
           slug: string
           starts_at: string | null
@@ -2011,6 +2301,12 @@ export type Database = {
         | "resolved"
         | "note"
       match_format: "bo1" | "bo3" | "bo5"
+      match_result_type:
+        | "played"
+        | "forfeit"
+        | "bye"
+        | "no_contest"
+        | "admin_override"
       match_status:
         | "assigned"
         | "check_in_open"
@@ -2042,11 +2338,12 @@ export type Database = {
         | "forfeit_player_two"
         | "replay_required"
       side_choice: "red" | "blue"
-      tournament_format: "single_elimination"
+      tournament_format: "single_elimination" | "group_stage_playoff"
       tournament_seeding_method:
         | "random"
         | "registration_order"
         | "check_in_order"
+        | "group_finish"
       tournament_status:
         | "draft"
         | "published"
@@ -2204,6 +2501,13 @@ export const Constants = {
         "note",
       ],
       match_format: ["bo1", "bo3", "bo5"],
+      match_result_type: [
+        "played",
+        "forfeit",
+        "bye",
+        "no_contest",
+        "admin_override",
+      ],
       match_status: [
         "assigned",
         "check_in_open",
@@ -2238,11 +2542,12 @@ export const Constants = {
         "replay_required",
       ],
       side_choice: ["red", "blue"],
-      tournament_format: ["single_elimination"],
+      tournament_format: ["single_elimination", "group_stage_playoff"],
       tournament_seeding_method: [
         "random",
         "registration_order",
         "check_in_order",
+        "group_finish",
       ],
       tournament_status: [
         "draft",

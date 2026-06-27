@@ -39,6 +39,11 @@ type DashboardMatch = MatchRow & {
 
 type WinnerMatchRow = Pick<MatchRow, "tournament_id" | "winner_id" | "round_number">;
 
+type WinnerSummary = {
+  id: string;
+  name: string;
+};
+
 function startOfLocalDay(date: Date) {
   const nextDate = new Date(date);
   nextDate.setHours(0, 0, 0, 0);
@@ -114,7 +119,7 @@ async function loadRegistrationCounts(
   }, {});
 }
 
-async function loadWinnerNames(
+async function loadWinnerSummaries(
   supabase: ReturnType<typeof createClient>,
   tournaments: TournamentRow[],
 ) {
@@ -173,9 +178,12 @@ async function loadWinnerNames(
     {},
   );
 
-  return Object.entries(winnerByTournament).reduce<Record<string, string>>(
+  return Object.entries(winnerByTournament).reduce<Record<string, WinnerSummary>>(
     (winners, [tournamentId, winnerId]) => {
-      winners[tournamentId] = namesById[winnerId] ?? "Player";
+      winners[tournamentId] = {
+        id: winnerId,
+        name: namesById[winnerId] ?? "Player",
+      };
       return winners;
     },
     {},
@@ -190,7 +198,7 @@ export function DashboardHome() {
   const [myMatches, setMyMatches] = useState<DashboardMatch[]>([]);
   const [recentWinners, setRecentWinners] = useState<TournamentRow[]>([]);
   const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
-  const [winnerNames, setWinnerNames] = useState<Record<string, string>>({});
+  const [winnersByTournament, setWinnersByTournament] = useState<Record<string, WinnerSummary>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -323,7 +331,7 @@ export function DashboardHome() {
       ]);
       const [counts, winners] = await Promise.all([
         loadRegistrationCounts(supabase, allCountIds),
-        loadWinnerNames(supabase, [...visibleCalendarTournaments, ...winnerTournaments]),
+        loadWinnerSummaries(supabase, [...visibleCalendarTournaments, ...winnerTournaments]),
       ]);
 
       setUser(currentUser);
@@ -332,7 +340,7 @@ export function DashboardHome() {
       setMyTournaments(registeredTournaments);
       setMyMatches(playerMatches);
       setRegistrationCounts(counts);
-      setWinnerNames(winners);
+      setWinnersByTournament(winners);
     } catch (caughtError) {
       logError("Dashboard load failed.", caughtError);
       setError(formatError(caughtError, "Unable to load the dashboard."));
@@ -419,7 +427,7 @@ export function DashboardHome() {
                         key={tournament.id}
                         registrationCount={registrationCounts[tournament.id] ?? 0}
                         tournament={tournament}
-                        winnerName={winnerNames[tournament.id] ?? null}
+                        winnerName={winnersByTournament[tournament.id]?.name ?? null}
                       />
                     ))}
                   </div>
@@ -499,16 +507,34 @@ export function DashboardHome() {
           />
         ) : (
           <div className="winner-list">
-            {recentWinners.map((tournament) => (
-              <TournamentCard
-                compact
-                key={tournament.id}
-                note={tournamentStatusLabels[tournament.status]}
-                registrationCount={registrationCounts[tournament.id] ?? 0}
-                tournament={tournament}
-                winnerName={winnerNames[tournament.id] ?? "Winner pending"}
-              />
-            ))}
+            {recentWinners.map((tournament) => {
+              const winner = winnersByTournament[tournament.id];
+
+              return (
+                <article className="winner-row" key={tournament.id}>
+                  <div>
+                    <span className="time-label">{formatDateTime(tournament.starts_at)}</span>
+                    <h3>
+                      <Link href={`/tournaments/${tournament.id}`}>{tournament.name}</Link>
+                    </h3>
+                    <p className="muted">{tournamentStatusLabels[tournament.status]}</p>
+                  </div>
+                  <div className="winner-row-meta">
+                    <span className="badge">
+                      {registrationCounts[tournament.id] ?? 0}
+                      {tournament.max_players ? `/${tournament.max_players}` : ""} players
+                    </span>
+                    {winner ? (
+                      <Link className="winner-line" href={`/players/${winner.id}`}>
+                        Winner: {winner.name}
+                      </Link>
+                    ) : (
+                      <span className="muted">Winner pending</span>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </SectionCard>

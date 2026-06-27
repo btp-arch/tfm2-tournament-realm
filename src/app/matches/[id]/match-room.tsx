@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { ErrorState, LoadingState, MatchStatusBadge } from "@/components/ui";
@@ -100,6 +101,20 @@ function parseScoreKey(scoreKey: string) {
   return Number.isInteger(winnerScore) && Number.isInteger(loserScore)
     ? { winnerScore, loserScore }
     : null;
+}
+
+function PlayerProfileLink({
+  children,
+  userId,
+}: {
+  children: ReactNode;
+  userId: string | null;
+}) {
+  if (!userId) {
+    return <>{children}</>;
+  }
+
+  return <Link href={`/players/${userId}`}>{children}</Link>;
 }
 
 export function MatchRoom({ matchId }: { matchId: string }) {
@@ -791,8 +806,16 @@ export function MatchRoom({ matchId }: { matchId: string }) {
   }
 
   if (!playableMatch) {
-    const playerOneSlot = match.player_one_id ? playerOneName : getMatchSlotFallback(match, "one");
-    const playerTwoSlot = match.player_two_id ? playerTwoName : getMatchSlotFallback(match, "two");
+    const playerOneSlot = match.player_one_id ? (
+      <PlayerProfileLink userId={match.player_one_id}>{playerOneName}</PlayerProfileLink>
+    ) : (
+      getMatchSlotFallback(match, "one")
+    );
+    const playerTwoSlot = match.player_two_id ? (
+      <PlayerProfileLink userId={match.player_two_id}>{playerTwoName}</PlayerProfileLink>
+    ) : (
+      getMatchSlotFallback(match, "two")
+    );
 
     return (
       <>
@@ -839,7 +862,11 @@ export function MatchRoom({ matchId }: { matchId: string }) {
             {match.winner_id ? (
               <div>
                 <dt>Advancing Player</dt>
-                <dd>{getProfileName(profileMap, match.winner_id) ?? "Player"}</dd>
+                <dd>
+                  <PlayerProfileLink userId={match.winner_id}>
+                    {getProfileName(profileMap, match.winner_id) ?? "Player"}
+                  </PlayerProfileLink>
+                </dd>
               </div>
             ) : null}
           </dl>
@@ -936,11 +963,19 @@ export function MatchRoom({ matchId }: { matchId: string }) {
           </div>
           <div>
             <dt>Player A</dt>
-            <dd>{playerOneName}</dd>
+            <dd>
+              <PlayerProfileLink userId={match.player_one_id}>{playerOneName}</PlayerProfileLink>
+            </dd>
           </div>
           <div>
             <dt>Player B</dt>
-            <dd>{getProfileName(profileMap, match.player_two_id) ?? (isMatchBye(match) ? "BYE" : "TBD")}</dd>
+            <dd>
+              {match.player_two_id ? (
+                <PlayerProfileLink userId={match.player_two_id}>{playerTwoName}</PlayerProfileLink>
+              ) : (
+                getProfileName(profileMap, match.player_two_id) ?? (isMatchBye(match) ? "BYE" : "TBD")
+              )}
+            </dd>
           </div>
           <div>
             <dt>BO Format</dt>
@@ -976,7 +1011,13 @@ export function MatchRoom({ matchId }: { matchId: string }) {
           </div>
           <div>
             <dt>Host</dt>
-            <dd>{hostName ?? "Not assigned"}</dd>
+            <dd>
+              {match.host_user_id ? (
+                <PlayerProfileLink userId={match.host_user_id}>{hostName ?? "Player"}</PlayerProfileLink>
+              ) : (
+                "Not assigned"
+              )}
+            </dd>
           </div>
           <div>
             <dt>Host Side</dt>
@@ -984,7 +1025,13 @@ export function MatchRoom({ matchId }: { matchId: string }) {
           </div>
           <div>
             <dt>Guest</dt>
-            <dd>{guestName ?? "Not assigned"}</dd>
+            <dd>
+              {guestId ? (
+                <PlayerProfileLink userId={guestId}>{guestName ?? "Player"}</PlayerProfileLink>
+              ) : (
+                "Not assigned"
+              )}
+            </dd>
           </div>
           <div>
             <dt>Guest Side</dt>
@@ -1024,7 +1071,10 @@ export function MatchRoom({ matchId }: { matchId: string }) {
           </div>
           {match.winner_id ? (
             <span className="badge">
-              Winner: {getProfileName(profileMap, match.winner_id) ?? "Player"}
+              Winner:{" "}
+              <PlayerProfileLink userId={match.winner_id}>
+                {getProfileName(profileMap, match.winner_id) ?? "Player"}
+              </PlayerProfileLink>
             </span>
           ) : null}
         </div>
@@ -1034,7 +1084,9 @@ export function MatchRoom({ matchId }: { matchId: string }) {
         ) : match.status === "finalized" || match.status === "confirmed" ? (
           <p className="notice">
             Result confirmed.{" "}
-            {match.winner_id
+            {match.result_type === "forfeit" && match.winner_id
+              ? `${getProfileName(profileMap, match.winner_id) ?? "Winner"} won by forfeit.`
+              : match.winner_id
               ? `${getProfileName(profileMap, match.winner_id) ?? "Winner"} advanced${finalScoreLabel ? ` ${finalScoreLabel}` : ""}.`
               : "No winner was advanced."}
           </p>

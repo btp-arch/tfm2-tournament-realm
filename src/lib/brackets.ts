@@ -1,6 +1,6 @@
 import type { Database } from "@/types/database.generated";
 
-export type BracketSize = 4 | 8 | 16 | 32;
+export type BracketSize = 4 | 8 | 16 | 32 | 64;
 export type MatchFormat = Database["public"]["Enums"]["match_format"];
 export type MatchStatus = Database["public"]["Enums"]["match_status"];
 export type SeedingMethod = Database["public"]["Enums"]["tournament_seeding_method"];
@@ -30,7 +30,7 @@ type BracketSlot = {
   slotNumber: number;
 };
 
-export const bracketSizes: BracketSize[] = [4, 8, 16, 32];
+export const bracketSizes: BracketSize[] = [4, 8, 16, 32, 64];
 export const seedingMethods: SeedingMethod[] = [
   "random",
   "registration_order",
@@ -39,6 +39,7 @@ export const seedingMethods: SeedingMethod[] = [
 
 export const seedingMethodLabels: Record<SeedingMethod, string> = {
   check_in_order: "Check-in Order",
+  group_finish: "Group Finish",
   random: "Random",
   registration_order: "Registration Order",
 };
@@ -85,6 +86,29 @@ export function getDefaultRoundFormats(bracketSize: BracketSize): MatchFormat[] 
   });
 }
 
+export function getRoundFormatsFromDefaults(
+  bracketSize: BracketSize,
+  formats: {
+    final: MatchFormat;
+    preSemifinal: MatchFormat;
+    semifinal: MatchFormat;
+  },
+): MatchFormat[] {
+  return Array.from({ length: getRoundCount(bracketSize) }, (_, index) => {
+    const roundName = getRoundName(bracketSize, index + 1);
+
+    if (roundName === "Final") {
+      return formats.final;
+    }
+
+    if (roundName === "Semifinals") {
+      return formats.semifinal;
+    }
+
+    return formats.preSemifinal;
+  });
+}
+
 export function getBracketSetupWarning(
   checkedInCount: number,
   bracketSize: BracketSize,
@@ -106,7 +130,7 @@ export function getBracketSetupWarning(
   return null;
 }
 
-function getSeedOrder(size: number): number[] {
+export function getSeedOrder(size: number): number[] {
   if (size === 2) {
     return [1, 2];
   }

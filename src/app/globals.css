@@ -442,6 +442,17 @@ textarea {
   margin: 0;
 }
 
+.admin-record-summary {
+  display: grid;
+  gap: .45rem;
+  justify-items: end;
+  text-align: right;
+}
+
+.admin-record-summary p {
+  margin: 0;
+}
+
 .notice {
   color: var(--green);
 }
@@ -455,6 +466,57 @@ textarea {
   grid-template-columns: minmax(0, 560px) minmax(220px, 1fr);
   gap: 1rem;
   align-items: start;
+}
+
+.player-profile-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, .8fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.record-summary-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
+  gap: 1rem;
+}
+
+.record-summary-card.primary {
+  border-color: var(--gold);
+  background: #151a1f;
+}
+
+.record-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: .75rem;
+  margin: 0;
+}
+
+.record-stat-grid div {
+  border-top: 1px solid var(--border);
+  padding-top: .75rem;
+}
+
+.record-stat-grid dt {
+  color: var(--muted);
+  font-size: .85rem;
+}
+
+.record-stat-grid dd {
+  margin: .25rem 0 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.record-source-note {
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.record-source-note p {
+  margin: .35rem 0 .75rem;
 }
 
 .role-list {
@@ -638,6 +700,80 @@ textarea {
   margin: .35rem 0 0;
 }
 
+.readonly-field {
+  display: grid;
+  gap: .35rem;
+  align-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: .7rem .8rem;
+  background: var(--surface-subtle);
+}
+
+.readonly-field span {
+  color: var(--muted);
+  font-size: .88rem;
+}
+
+.match-history-list,
+.tournament-result-list {
+  display: grid;
+  gap: .75rem;
+}
+
+.match-history-row,
+.tournament-result-row,
+.winner-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  background: var(--surface-subtle);
+}
+
+.match-history-row h3,
+.tournament-result-row h3,
+.winner-row h3 {
+  margin: .45rem 0 .25rem;
+}
+
+.match-history-meta,
+.winner-row-meta {
+  display: grid;
+  gap: .45rem;
+  justify-items: end;
+  text-align: right;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(5, 8, 12, .72);
+}
+
+.modal-card {
+  width: min(100%, 46rem);
+  max-height: min(84vh, 52rem);
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .42);
+  padding: 1.15rem;
+}
+
+.group-history-modal {
+  display: grid;
+  gap: 1rem;
+}
+
 .bracket-round {
   border-top: 1px solid var(--border);
   padding-top: 1rem;
@@ -678,6 +814,58 @@ textarea {
 
 .tournament-tab-panel {
   min-width: 0;
+}
+
+.group-stage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 34rem), 1fr));
+  gap: 1rem;
+}
+
+.group-card {
+  display: grid;
+  gap: 1.1rem;
+  min-width: 0;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.standings-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  font-size: .92rem;
+}
+
+.standings-table th,
+.standings-table td {
+  border-bottom: 1px solid var(--border);
+  padding: .55rem .45rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.standings-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  margin-top: .4rem;
+}
+
+.tiny-button {
+  padding: .35rem .5rem;
+  font-size: .78rem;
+}
+
+.compact-list {
+  gap: .45rem;
 }
 
 .player-action-row {
@@ -784,6 +972,13 @@ textarea {
 .bracket-card-topline span {
   color: var(--muted);
   font-size: .8rem;
+}
+
+.bracket-room-link {
+  display: inline-block;
+  width: fit-content;
+  color: var(--blue-soft);
+  font-size: .82rem;
 }
 
 .bracket-slot {
@@ -1346,10 +1541,25 @@ textarea {
     text-align: left;
   }
 
+  .admin-record-summary,
+  .match-history-meta,
+  .winner-row-meta {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .player-profile-overview,
+  .record-summary-layout {
+    grid-template-columns: 1fr;
+  }
+
   .role-management-row,
   .management-row,
     .participant-row,
     .match-row,
+    .match-history-row,
+    .tournament-result-row,
+    .winner-row,
     .evidence-row,
     .status-control,
     .management-actions {

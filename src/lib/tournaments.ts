@@ -1,6 +1,7 @@
 import type { Database } from "@/types/database.generated";
 
 export type MatchFormat = Database["public"]["Enums"]["match_format"];
+export type MatchResultType = Database["public"]["Enums"]["match_result_type"];
 export type MatchStatus = Database["public"]["Enums"]["match_status"];
 export type MatchSideChoice = Database["public"]["Enums"]["side_choice"];
 export type TournamentTier = Database["public"]["Enums"]["tournament_tier"];
@@ -12,6 +13,9 @@ export type TournamentInsert = Database["public"]["Tables"]["tournaments"]["Inse
 export type TournamentRegistrationRow =
   Database["public"]["Tables"]["tournament_registrations"]["Row"];
 export type TournamentCheckInRow = Database["public"]["Tables"]["tournament_check_ins"]["Row"];
+export type TournamentGroupRow = Database["public"]["Tables"]["tournament_groups"]["Row"];
+export type TournamentGroupMemberRow =
+  Database["public"]["Tables"]["tournament_group_members"]["Row"];
 export type TournamentStageRow = Database["public"]["Tables"]["tournament_stages"]["Row"];
 export type TournamentRoundRow = Database["public"]["Tables"]["tournament_rounds"]["Row"];
 export type MatchRow = Database["public"]["Tables"]["matches"]["Row"];
@@ -56,7 +60,10 @@ export const editableTournamentStatuses: TournamentStatus[] = [
 ];
 
 export const matchFormats: MatchFormat[] = ["bo1", "bo3", "bo5"];
-export const tournamentFormats: TournamentFormat[] = ["single_elimination"];
+export const groupStageMatchFormats: MatchFormat[] = ["bo1", "bo3"];
+export const groupSizes = [4, 8] as const;
+export const qualifiersPerGroupOptions = [1, 2, 3, 4] as const;
+export const tournamentFormats: TournamentFormat[] = ["single_elimination", "group_stage_playoff"];
 export const tournamentTiers: TournamentTier[] = [
   "test",
   "community",
@@ -149,6 +156,7 @@ export const matchSideLabels: Record<MatchSideChoice, string> = {
 };
 
 export const tournamentFormatLabels: Record<TournamentFormat, string> = {
+  group_stage_playoff: "Group Stage + Playoff",
   single_elimination: "Single Elimination",
 };
 
@@ -262,6 +270,8 @@ export function countsTowardOfficialStats(
   return isOfficialTournament(tournament);
 }
 
+export const countsTowardOfficialRecord = countsTowardOfficialStats;
+
 export function countsTowardOverallStats(
   tournament: Pick<TournamentRow, "tournament_tier" | "exclude_from_stats">,
 ) {
@@ -273,6 +283,8 @@ export function countsTowardOverallStats(
   );
 }
 
+export const countsTowardOverallRecord = countsTowardOverallStats;
+
 export function countsTowardPlayerRecord(
   tournament: Pick<TournamentRow, "tournament_tier" | "exclude_from_stats">,
   match: Pick<
@@ -280,6 +292,7 @@ export function countsTowardPlayerRecord(
     | "status"
     | "player_one_id"
     | "player_two_id"
+    | "result_type"
     | "winner_id"
     | "final_winner_score"
     | "final_loser_score"
@@ -287,8 +300,10 @@ export function countsTowardPlayerRecord(
 ) {
   return (
     countsTowardOverallStats(tournament) &&
-    (match.status === "finalized" || match.status === "confirmed") &&
+    match.status === "finalized" &&
+    match.result_type === "played" &&
     Boolean(match.player_one_id && match.player_two_id && match.winner_id) &&
+    match.player_one_id !== match.player_two_id &&
     match.final_winner_score !== null &&
     match.final_loser_score !== null
   );

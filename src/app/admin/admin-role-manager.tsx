@@ -14,6 +14,13 @@ import {
   TournamentTierBadge,
 } from "@/components/ui";
 import { formatError, logError } from "@/lib/errors";
+import {
+  calculateGameRecord,
+  calculatePlayerRecord,
+  countsTowardOfficialRecord,
+  countsTowardOverallRecord,
+  type PlayerRecordSource,
+} from "@/lib/player-records";
 import { ensureProfile, profileSelect, type Profile } from "@/lib/profiles";
 import {
   emptyRoleState,
@@ -107,6 +114,7 @@ export function AdminRoleManager() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [roleRows, setRoleRows] = useState<PlatformRoleRow[]>([]);
   const [tournaments, setTournaments] = useState<TournamentRow[]>([]);
+  const [recordMatches, setRecordMatches] = useState<MatchRow[]>([]);
   const [reviewMatches, setReviewMatches] = useState<MatchRow[]>([]);
   const [openDisputes, setOpenDisputes] = useState<DisputeRow[]>([]);
   const [organizerNames, setOrganizerNames] = useState<Record<string, string>>({});
@@ -170,9 +178,15 @@ export function AdminRoleManager() {
   );
 
   const loadRoleManagementData = useCallback(async () => {
-    const [profilesResult, rolesResult] = await Promise.all([
+    const [profilesResult, rolesResult, recordMatchesResult] = await Promise.all([
       supabase.from("profiles").select(profileSelect).order("display_name").limit(250),
       supabase.from("platform_roles").select("user_id, role, granted_by, created_at"),
+      supabase
+        .from("matches")
+        .select("*")
+        .eq("status", "finalized")
+        .order("updated_at", { ascending: false })
+        .limit(1000),
     ]);
 
     if (profilesResult.error) {
@@ -183,8 +197,13 @@ export function AdminRoleManager() {
       throw rolesResult.error;
     }
 
+    if (recordMatchesResult.error) {
+      throw recordMatchesResult.error;
+    }
+
     setProfiles(profilesResult.data);
     setRoleRows(rolesResult.data);
+    setRecordMatches((recordMatchesResult.data ?? []) as MatchRow[]);
   }, [supabase]);
 
   const loadTournamentManagementData = useCallback(async () => {
@@ -480,6 +499,18 @@ export function AdminRoleManager() {
     }
 
     return profileNames[userId] ?? "Player";
+  }
+
+  function getRecordSourcesForPlayer(playerId: string): PlayerRecordSource[] {
+    return recordMatches.flatMap((match) => {
+      if (match.player_one_id !== playerId && match.player_two_id !== playerId) {
+        return [];
+      }
+
+      const tournament = tournamentsById[match.tournament_id];
+
+      return tournament ? [{ match, tournament }] : [];
+    });
   }
 
   function handleSearch(event: FormEvent<HTMLFormElement>) {
@@ -858,7 +889,7 @@ export function AdminRoleManager() {
               <div>
                 <h2>Records Review Foundation</h2>
                 <p className="muted">
-                  Future player records will be computed from finalized match and tournament data.
+                  Player records are computed from finalized match and tournament source data.
                 </p>
               </div>
               <span className="badge">No manual W-L overrides</span>
@@ -893,7 +924,9 @@ export function AdminRoleManager() {
             <div className="section-heading">
               <div>
                 <h2>Record Sources</h2>
-                <p className="muted">Search players for future review without calculating final stats yet.</p>
+                <p className="muted">
+                  Search players to review computed records. Correct source matches or tournament classification instead of editing W-L totals.
+                </p>
               </div>
             </div>
 
@@ -908,20 +941,58 @@ export function AdminRoleManager() {
             </form>
 
             <div className="role-management-list">
-              {recordProfiles.map((recordProfile) => (
-                <article className="role-management-row" key={recordProfile.id}>
-                  <div>
-                    <h3>{recordProfile.display_name}</h3>
-                    <p className="muted">{recordProfile.discord_username ?? recordProfile.id}</p>
-                    <div className="role-list">
-                      <span className="badge">Source tournaments</span>
-                      <span className="badge">Finalized matches</span>
-                      <span className="badge">Dispute outcomes</span>
+              {recordProfiles.map((recordProfile) => {
+                const recordSources = getRecordSourcesForPlayer(recordProfile.id);
+                const officialMatchRecord = calculatePlayerRecord(
+                  recordSources,
+                  recordProfile.id,
+                  countsTowardOfficialRecord,
+                );
+                const officialGameRecord = calculateGameRecord(
+                  recordSources,
+                  recordProfile.id,
+                  countsTowardOfficialRecord,
+                );
+                const overallMatchRecord = calculatePlayerRecord(
+                  recordSources,
+                  recordProfile.id,
+                  countsTowardOverallRecord,
+                );
+                const overallGameRecord = calculateGameRecord(
+                  recordSources,
+                  recordProfile.id,
+                  countsTowardOverallRecord,
+                );
+
+                return (
+                  <article className="role-management-row" key={recordProfile.id}>
+                    <div>
+                      <h3>
+                        <Link href={`/players/${recordProfile.id}`}>{recordProfile.display_name}</Link>
+                      </h3>
+                      <p className="muted">{recordProfile.discord_username ?? recordProfile.id}</p>
+                      <div className="role-list">
+                        <span className="badge">Computed</span>
+                        <span className="badge">Finalized matches only</span>
+                        <span className="badge">BYEs excluded</span>
+                      </div>
                     </div>
-                  </div>
-                  <p className="muted record-placeholder">Stats calculation pending next milestone.</p>
-                </article>
-              ))}
+                    <div className="admin-record-summary">
+                      <p>
+                        <strong>Official:</strong> {officialMatchRecord.wins}-{officialMatchRecord.losses} matches,{" "}
+                        {officialGameRecord.gameWins}-{officialGameRecord.gameLosses} games
+                      </p>
+                      <p>
+                        <strong>Overall:</strong> {overallMatchRecord.wins}-{overallMatchRecord.losses} matches,{" "}
+                        {overallGameRecord.gameWins}-{overallGameRecord.gameLosses} games
+                      </p>
+                      <Link className="button secondary-button button-link" href={`/players/${recordProfile.id}`}>
+                        Public Profile
+                      </Link>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
 
             {recordProfiles.length === 0 ? <p className="muted">No profiles match this search.</p> : null}

@@ -13,10 +13,10 @@ import {
   TournamentTierBadge,
 } from "@/components/ui";
 import {
-  bracketSizes,
   generateSingleEliminationMatches,
   getBracketSetupWarning,
   getDefaultRoundFormats,
+  getRoundFormatsFromDefaults,
   getRoundName,
   isBracketSize,
   seedingMethodLabels,
@@ -26,8 +26,19 @@ import {
 } from "@/lib/brackets";
 import { formatError, logError } from "@/lib/errors";
 import {
+  areGroupMatchesComplete,
+  calculateGroupStandings,
+  getGroupStageFormatSummary,
+  getGroupLabel,
+  getPlayoffByeCount,
+  getQualifierBlockedReason,
+  getSupportedPlayoffBracketSize,
+  isGroupBye,
+  isForfeitResult,
+  type GroupWithMembers,
+} from "@/lib/group-stage";
+import {
   getMatchSlotFallback,
-  getNonPlayableMatchMessage,
   isPlayableMatch,
 } from "@/lib/match-rooms";
 import { ensureProfile } from "@/lib/profiles";
@@ -44,7 +55,6 @@ import {
   getTournamentDeleteBlockedReason,
   isTournamentFull,
   matchFormatLabels,
-  matchFormats,
   matchStatusLabels,
   tournamentStatusDescriptions,
   tournamentFormatLabels,
@@ -52,6 +62,8 @@ import {
   type MatchFormat,
   type MatchRow,
   type TournamentCheckInRow,
+  type TournamentGroupMemberRow,
+  type TournamentGroupRow,
   type TournamentRegistrationRow,
   type TournamentRoundRow,
   type TournamentRow,
@@ -90,6 +102,10 @@ type SavingAction =
   | "manual-check-in"
   | "manual-uncheck"
   | "generate"
+  | "generate-groups"
+  | "reset-groups"
+  | "override-qualifier"
+  | "clear-qualifiers"
   | "admin-force-check-in"
   | "admin-force-start"
   | "reset"
@@ -97,7 +113,7 @@ type SavingAction =
   | null;
 
 type ActiveSavingAction = Exclude<SavingAction, null>;
-type TournamentTabKey = "overview" | "players" | "bracket" | "matches" | "rules" | "admin";
+type TournamentTabKey = "overview" | "players" | "groups" | "bracket" | "rules" | "admin";
 
 type MatchRoundGroup = {
   round: TournamentRoundRow;
@@ -166,6 +182,52 @@ function orderParticipantsForSeeding(
   });
 }
 
+function orderParticipantsForGroupDraw(
+  participants: Participant[],
+  drawMethod: SeedingMethod,
+) {
+  return orderParticipantsForSeeding(participants, drawMethod);
+}
+
+function createRoundRobinPairings(members: TournamentGroupMemberRow[]) {
+  const orderedMembers = members
+    .filter((member) => !isGroupBye(member) && member.user_id)
+    .slice()
+    .sort((first, second) => first.seed - second.seed);
+  const pairings: { playerOne: TournamentGroupMemberRow; playerTwo: TournamentGroupMemberRow }[] = [];
+
+  for (let firstIndex = 0; firstIndex < orderedMembers.length; firstIndex += 1) {
+    for (let secondIndex = firstIndex + 1; secondIndex < orderedMembers.length; secondIndex += 1) {
+      const first = orderedMembers[firstIndex];
+      const second = orderedMembers[secondIndex];
+
+      if (first && second) {
+        pairings.push({ playerOne: first, playerTwo: second });
+      }
+    }
+  }
+
+  return pairings;
+}
+
+function getGroupDrawParticipant(
+  participants: Participant[],
+  groupIndex: number,
+  slotIndex: number,
+  groupsCount: number,
+) {
+  const activeGroupCount =
+    participants.length < groupsCount * 2
+      ? Math.max(1, Math.min(groupsCount, Math.floor(participants.length / 2)))
+      : groupsCount;
+
+  if (groupIndex >= activeGroupCount) {
+    return null;
+  }
+
+  return participants[slotIndex * activeGroupCount + groupIndex] ?? null;
+}
+
 function isEligibleParticipant(participant: Participant) {
   return participant.registrationStatus !== "withdrawn" && participant.registrationStatus !== "rejected";
 }
@@ -194,15 +256,15 @@ function getTournamentStatusGuidance(
     if (checkedInCount < 2) {
       return {
         current: "Registered players can check in, and staff can manually mark registered players checked in.",
-        next: "Wait for at least 2 checked-in players before generating the bracket.",
+        next: "Wait for at least 2 checked-in players before starting the tournament.",
       };
     }
 
     return {
-      current: "Checked-in players are ready for bracket generation.",
+      current: "Checked-in players are ready to start.",
       next: hasGeneratedBracket
         ? "The bracket has already been generated."
-        : "Choose bracket size, seeding, and round formats, then generate the bracket and start.",
+        : "Confirm seeding, then start the tournament.",
     };
   }
 
@@ -278,20 +340,30 @@ function getChampionName(matches: MatchRow[], profiles: Record<string, PublicPro
   return finalWinner ? getProfileName(profiles, finalWinner.winner_id) : null;
 }
 
+function getTournamentRoundFormats(tournament: TournamentRow, bracketSize: BracketSize) {
+  return getRoundFormatsFromDefaults(bracketSize, {
+    final: tournament.final_match_format,
+    preSemifinal: tournament.pre_semifinal_match_format,
+    semifinal: tournament.semifinal_match_format,
+  });
+}
+
 function TournamentTabs({
   activeTab,
   canManageTournament,
+  hasGroupStage,
   onTabChange,
 }: {
   activeTab: TournamentTabKey;
   canManageTournament: boolean;
+  hasGroupStage: boolean;
   onTabChange: (tab: TournamentTabKey) => void;
 }) {
   const tabs: { key: TournamentTabKey; label: string }[] = [
     { key: "overview", label: "Overview" },
     { key: "players", label: "Players" },
-    { key: "bracket", label: "Bracket" },
-    { key: "matches", label: "Matches" },
+    ...(hasGroupStage ? [{ key: "groups" as const, label: "Groups" }] : []),
+    { key: "bracket", label: hasGroupStage ? "Playoff Bracket" : "Bracket" },
     { key: "rules", label: "Rules" },
   ];
 
@@ -317,18 +389,36 @@ function TournamentTabs({
   );
 }
 
+function PlayerProfileLink({
+  children,
+  userId,
+}: {
+  children: ReactNode;
+  userId: string | null;
+}) {
+  if (!userId) {
+    return <>{children}</>;
+  }
+
+  return <Link href={`/players/${userId}`}>{children}</Link>;
+}
+
 function MatchSlotLine({
   isWinner,
   label,
   score,
+  userId,
 }: {
   isWinner: boolean;
   label: string;
   score: number | null;
+  userId: string | null;
 }) {
   return (
     <div className={["bracket-slot", isWinner ? "winner" : ""].filter(Boolean).join(" ")}>
-      <span>{label}</span>
+      <span>
+        <PlayerProfileLink userId={userId}>{label}</PlayerProfileLink>
+      </span>
       {score !== null ? <strong>{score}</strong> : null}
     </div>
   );
@@ -392,26 +482,25 @@ function BracketMatchCard({
         isWinner={Boolean(match.winner_id) && match.winner_id === match.player_one_id}
         label={playerOne}
         score={playerOneScore}
+        userId={match.player_one_id}
       />
       <MatchSlotLine
         isWinner={Boolean(match.winner_id) && match.winner_id === match.player_two_id}
         label={playerTwo}
         score={playerTwoScore}
+        userId={match.player_two_id}
       />
+      {shouldLinkMatch ? (
+        <Link
+          aria-label={`Open match ${match.match_number ?? match.bracket_position}`}
+          className="bracket-room-link"
+          href={`/matches/${match.id}`}
+        >
+          Match Room
+        </Link>
+      ) : null}
     </>
   );
-
-  if (shouldLinkMatch) {
-    return (
-      <Link
-        aria-label={`Open match ${match.match_number ?? match.bracket_position}`}
-        className={cardClassName}
-        href={`/matches/${match.id}`}
-      >
-        {cardContent}
-      </Link>
-    );
-  }
 
   return (
     <article className={cardClassName}>
@@ -510,6 +599,8 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const [stages, setStages] = useState<TournamentStageRow[]>([]);
   const [rounds, setRounds] = useState<TournamentRoundRow[]>([]);
   const [matches, setMatches] = useState<MatchRow[]>([]);
+  const [groups, setGroups] = useState<TournamentGroupRow[]>([]);
+  const [groupMembers, setGroupMembers] = useState<TournamentGroupMemberRow[]>([]);
   const [activeRegistrationCount, setActiveRegistrationCount] = useState(0);
   const [totalRegistrationCount, setTotalRegistrationCount] = useState(0);
   const [isManagedByUser, setIsManagedByUser] = useState(false);
@@ -524,7 +615,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<TournamentTabKey>("overview");
-  const [matchSearch, setMatchSearch] = useState("");
+  const [historyGroupId, setHistoryGroupId] = useState<string | null>(null);
 
   const loadTournament = useCallback(async () => {
     try {
@@ -567,6 +658,8 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         stagesResult,
         roundsResult,
         matchesResult,
+        groupsResult,
+        groupMembersResult,
       ] = await Promise.all([
         supabase
           .from("public_profiles")
@@ -622,6 +715,16 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           .eq("tournament_id", loadedTournament.id)
           .order("round_number", { ascending: true })
           .order("bracket_position", { ascending: true }),
+        supabase
+          .from("tournament_groups")
+          .select("*")
+          .eq("tournament_id", loadedTournament.id)
+          .order("group_number", { ascending: true }),
+        supabase
+          .from("tournament_group_members")
+          .select("*")
+          .eq("tournament_id", loadedTournament.id)
+          .order("draw_position", { ascending: true }),
       ]);
 
       if (organizerResult.error) throw organizerResult.error;
@@ -633,6 +736,8 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       if (stagesResult.error) throw stagesResult.error;
       if (roundsResult.error) throw roundsResult.error;
       if (matchesResult.error) throw matchesResult.error;
+      if (groupsResult.error) throw groupsResult.error;
+      if (groupMembersResult.error) throw groupMembersResult.error;
 
       const countRow = countResult.data as RegistrationCountRow | null;
       const checkIns = (checkInResult.data ?? []) as TournamentCheckInRow[];
@@ -653,6 +758,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           loadedTournament.created_by,
           ...stagesResult.data.map((stage) => stage.generated_by),
           ...registrationRows.map((row) => row.user_id),
+          ...groupMembersResult.data.map((member) => member.user_id),
           ...matchesResult.data.flatMap((match) => [
             match.player_one_id,
             match.player_two_id,
@@ -705,6 +811,8 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       setStages(stagesResult.data);
       setRounds(roundsResult.data);
       setMatches(matchesResult.data);
+      setGroups(groupsResult.data);
+      setGroupMembers(groupMembersResult.data);
       setActiveRegistrationCount(countRow?.active_registration_count ?? 0);
       setTotalRegistrationCount(totalRegistrationsResult.count ?? 0);
       setIsManagedByUser(Boolean(organizerAccessResult.data));
@@ -712,10 +820,16 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       setAdminDeleteConfirmation("");
       setLastUpdatedAt(new Date());
 
-      const firstStage = stagesResult.data[0];
+      const firstStage = stagesResult.data.find(
+        (stage) => stage.bracket_type === "single_elimination",
+      );
       if (firstStage && isBracketSize(firstStage.bracket_size)) {
         setSelectedBracketSize(firstStage.bracket_size);
         setSelectedSeedingMethod(firstStage.seeding_method);
+        setRoundFormats(getTournamentRoundFormats(loadedTournament, firstStage.bracket_size));
+      } else if (loadedTournament.max_players && isBracketSize(loadedTournament.max_players)) {
+        setSelectedBracketSize(loadedTournament.max_players);
+        setRoundFormats(getTournamentRoundFormats(loadedTournament, loadedTournament.max_players));
       }
     } catch (caughtError) {
       logError("Tournament detail load failed.", caughtError);
@@ -755,11 +869,62 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     return registeredParticipants.filter((participant) => Boolean(participant.checkIn));
   }, [registeredParticipants]);
 
+  const isGroupStageTournament = tournament?.tournament_format === "group_stage_playoff";
+  const groupStage = useMemo(
+    () => stages.find((stage) => stage.bracket_type === "group_stage_playoff") ?? null,
+    [stages],
+  );
+  const playoffStage = useMemo(
+    () =>
+      isGroupStageTournament
+        ? stages.find(
+            (stage) => stage.bracket_type === "single_elimination" && stage.stage_number > 1,
+          ) ?? null
+        : stages.find((stage) => stage.bracket_type === "single_elimination") ?? null,
+    [isGroupStageTournament, stages],
+  );
+  const groupsWithMembers = useMemo<GroupWithMembers[]>(() => {
+    return groups.map((group) => ({
+      ...group,
+      members: groupMembers
+        .filter((member) => member.group_id === group.id)
+        .sort((first, second) => first.draw_position - second.draw_position),
+    }));
+  }, [groupMembers, groups]);
+  const groupStageMatches = useMemo(
+    () => matches.filter((match) => Boolean(match.group_id)),
+    [matches],
+  );
+  const playoffMatches = useMemo(
+    () => (playoffStage ? matches.filter((match) => match.stage_id === playoffStage.id) : []),
+    [matches, playoffStage],
+  );
+
   const bracketWarning = getBracketSetupWarning(
     checkedInParticipants.length,
     selectedBracketSize,
   );
-  const hasGeneratedBracket = stages.length > 0;
+  const hasGroupDraw = groupsWithMembers.length > 0;
+  const hasPlayoffBracket = Boolean(playoffStage);
+  const hasGeneratedBracket = isGroupStageTournament ? hasGroupDraw : stages.length > 0;
+  const requiredGroupPlayerCount =
+    (tournament?.group_size ?? 0) * (tournament?.groups_count ?? 0);
+  const totalGroupQualifiers =
+    (tournament?.groups_count ?? 0) * (tournament?.qualifiers_per_group ?? 0);
+  const configuredPlayoffBracketSize = getSupportedPlayoffBracketSize(totalGroupQualifiers);
+  const configuredPlayoffByeCount = getPlayoffByeCount(totalGroupQualifiers);
+  const groupDrawWarning =
+    isGroupStageTournament && tournament
+      ? checkedInParticipants.length > requiredGroupPlayerCount
+        ? `Group draw can hold ${requiredGroupPlayerCount} checked-in players. ${checkedInParticipants.length} are checked in.`
+        : checkedInParticipants.length < 2
+            ? "At least 2 checked-in players are required to start the tournament."
+          : null
+      : null;
+  const groupMatchesComplete = areGroupMatchesComplete(groupsWithMembers, matches);
+  const playoffBlockedReason = tournament
+    ? getQualifierBlockedReason(groupsWithMembers, matches, tournament)
+    : null;
   const registrationBlockedReason = tournament
     ? getRegistrationBlockedReason(tournament, activeRegistrationCount, registration, Boolean(user))
     : null;
@@ -817,15 +982,6 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       adminForceStartParticipantCount >= 2 &&
       adminForceStartParticipantCount <= selectedBracketSize,
   );
-
-  function updateBracketSize(value: number) {
-    if (!isBracketSize(value)) {
-      return;
-    }
-
-    setSelectedBracketSize(value);
-    setRoundFormats(getDefaultRoundFormats(value));
-  }
 
   async function registerForTournament() {
     if (!user || !tournament || !canRegister) {
@@ -941,7 +1097,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
 
     if (status === "active") {
       if (!hasGeneratedBracket) {
-        setError("Generate a bracket before setting the tournament active.");
+        setError("Start the tournament before setting it active manually.");
         return;
       }
 
@@ -1187,7 +1343,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     }
 
     if (tournament.status !== "check_in") {
-      setError("Open check-in before generating the bracket and starting the tournament.");
+      setError("Open check-in before starting the tournament.");
       return;
     }
 
@@ -1196,6 +1352,19 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       "generate",
       "Bracket generated and tournament started.",
     );
+  }
+
+  async function startTournament() {
+    if (!tournament || !canManageTournament) {
+      return;
+    }
+
+    if (isGroupStageTournament) {
+      await generateGroupDraw();
+      return;
+    }
+
+    await generateBracket();
   }
 
   async function adminForceOpenCheckIn() {
@@ -1352,6 +1521,310 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     }
   }
 
+  async function generateGroupDraw() {
+    if (!user || !tournament || !canManageTournament || !isGroupStageTournament) {
+      return;
+    }
+
+    if (tournament.status !== "check_in") {
+      setError("Open check-in before starting the tournament.");
+      return;
+    }
+
+    if (hasGroupDraw) {
+      setError("This tournament already has a generated group draw.");
+      return;
+    }
+
+    if (groupDrawWarning) {
+      setError(groupDrawWarning);
+      return;
+    }
+
+    if (!tournament.group_size || !tournament.groups_count || !tournament.group_stage_format) {
+      setError("Group-stage settings are incomplete.");
+      return;
+    }
+
+    setSavingAction("generate-groups");
+    setNotice(null);
+    setError(null);
+    let createdStageId: string | null = null;
+
+    try {
+      const orderedParticipants = orderParticipantsForGroupDraw(
+        checkedInParticipants,
+        selectedSeedingMethod,
+      );
+
+      const { data: stage, error: stageError } = await supabase
+        .from("tournament_stages")
+        .insert({
+          tournament_id: tournament.id,
+          stage_number: 1,
+          name: "Group Stage",
+          bracket_type: "group_stage_playoff",
+          bracket_size: requiredGroupPlayerCount,
+          seeding_method: selectedSeedingMethod,
+          generated_by: user.id,
+        })
+        .select()
+        .single();
+
+      if (stageError) {
+        throw stageError;
+      }
+
+      createdStageId = stage.id;
+
+      const { data: createdRound, error: roundError } = await supabase
+        .from("tournament_rounds")
+        .insert({
+          tournament_id: tournament.id,
+          stage_id: stage.id,
+          round_number: 1,
+          name: "Group Round Robin",
+          match_format: tournament.group_stage_format,
+        })
+        .select()
+        .single();
+
+      if (roundError) {
+        throw roundError;
+      }
+
+      const { data: createdGroups, error: groupsError } = await supabase
+        .from("tournament_groups")
+        .insert(
+          Array.from({ length: tournament.groups_count }, (_, index) => ({
+            tournament_id: tournament.id,
+            stage_id: stage.id,
+            group_number: index + 1,
+            name: getGroupLabel(index + 1),
+            draw_method: selectedSeedingMethod,
+            generated_by: user.id,
+          })),
+        )
+        .select();
+
+      if (groupsError) {
+        throw groupsError;
+      }
+
+      const memberInserts = createdGroups.flatMap((group, groupIndex) => {
+        return Array.from({ length: tournament.group_size! }, (_, index) => {
+          const participant = getGroupDrawParticipant(
+            orderedParticipants,
+            groupIndex,
+            index,
+            tournament.groups_count!,
+          );
+
+          return {
+            tournament_id: tournament.id,
+            group_id: group.id,
+            user_id: participant?.userId ?? null,
+            is_bye: !participant,
+            seed: index + 1,
+            draw_position: groupIndex * tournament.group_size! + index + 1,
+          };
+        });
+      });
+
+      const { data: createdMembers, error: membersError } = await supabase
+        .from("tournament_group_members")
+        .insert(memberInserts)
+        .select();
+
+      if (membersError) {
+        throw membersError;
+      }
+
+      let matchNumber = 1;
+      const matchInserts = createdGroups.flatMap((group) => {
+        const members = createdMembers.filter((member) => member.group_id === group.id);
+
+        return createRoundRobinPairings(members).map((pairing, index) => ({
+          tournament_id: tournament.id,
+          stage_id: stage.id,
+          round_id: createdRound.id,
+          group_id: group.id,
+          round_number: 1,
+          match_number: matchNumber++,
+          bracket_position: index + 1,
+          player_one_id: pairing.playerOne.user_id!,
+          player_two_id: pairing.playerTwo.user_id!,
+          player_one_seed: pairing.playerOne.seed,
+          player_two_seed: pairing.playerTwo.seed,
+          player_one_slot: pairing.playerOne.draw_position,
+          player_two_slot: pairing.playerTwo.draw_position,
+          format: tournament.group_stage_format!,
+          status: "assigned" as const,
+          result_type: "played" as const,
+        }));
+      });
+
+      const { error: matchesError } = await supabase.from("matches").insert(matchInserts);
+
+      if (matchesError) {
+        throw matchesError;
+      }
+
+      const { error: statusError } = await supabase
+        .from("tournaments")
+        .update({
+          status: "active",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tournament.id);
+
+      if (statusError) {
+        throw statusError;
+      }
+
+      setNotice("Group draw generated and group matches created.");
+      await loadTournament();
+      router.refresh();
+      setActiveTab("groups");
+    } catch (caughtError) {
+      if (createdStageId) {
+        await supabase.from("tournament_stages").delete().eq("id", createdStageId);
+      }
+
+      logError("Group draw generation failed.", caughtError);
+      setError(formatError(caughtError, "Unable to generate group draw."));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  async function resetGroupDraw() {
+    if (!tournament || !canManageTournament || !groupStage) {
+      return;
+    }
+
+    if (hasPlayoffBracket) {
+      setError("Reset the group draw before generating playoffs.");
+      return;
+    }
+
+    if (groupStageMatches.some((match) => match.status !== "assigned")) {
+      setError("Group draw can only be reset before group matches start.");
+      return;
+    }
+
+    const confirmed = window.confirm("Reset the generated group draw and group matches?");
+    if (!confirmed) {
+      return;
+    }
+
+    setSavingAction("reset-groups");
+    setNotice(null);
+    setError(null);
+
+    try {
+      const { error: deleteError } = await supabase
+        .from("tournament_stages")
+        .delete()
+        .eq("id", groupStage.id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      if (tournament.status === "active") {
+        const { error: statusError } = await supabase
+          .from("tournaments")
+          .update({
+            status: "check_in",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", tournament.id);
+
+        if (statusError) {
+          throw statusError;
+        }
+      }
+
+      setNotice("Group draw reset.");
+      await loadTournament();
+      router.refresh();
+    } catch (caughtError) {
+      logError("Group draw reset failed.", caughtError);
+      setError(formatError(caughtError, "Unable to reset group draw."));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  async function setManualQualifier(member: TournamentGroupMemberRow, qualifierSeed: number) {
+    if (!canManageTournament) {
+      return;
+    }
+
+    setSavingAction("override-qualifier");
+    setNotice(null);
+    setError(null);
+
+    try {
+      const { error: clearError } = await supabase
+        .from("tournament_group_members")
+        .update({ qualifier_seed: null, updated_at: new Date().toISOString() })
+        .eq("group_id", member.group_id)
+        .eq("qualifier_seed", qualifierSeed);
+
+      if (clearError) {
+        throw clearError;
+      }
+
+      const { error: updateError } = await supabase
+        .from("tournament_group_members")
+        .update({ qualifier_seed: qualifierSeed, updated_at: new Date().toISOString() })
+        .eq("id", member.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setNotice("Manual qualifier override saved.");
+      await loadTournament();
+    } catch (caughtError) {
+      logError("Qualifier override failed.", caughtError);
+      setError(formatError(caughtError, "Unable to save qualifier override."));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  async function clearManualQualifiers(group: GroupWithMembers) {
+    if (!canManageTournament) {
+      return;
+    }
+
+    setSavingAction("clear-qualifiers");
+    setNotice(null);
+    setError(null);
+
+    try {
+      const { error: updateError } = await supabase
+        .from("tournament_group_members")
+        .update({ qualifier_seed: null, updated_at: new Date().toISOString() })
+        .eq("group_id", group.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setNotice(`${group.name} qualifier overrides cleared.`);
+      await loadTournament();
+    } catch (caughtError) {
+      logError("Clear qualifier overrides failed.", caughtError);
+      setError(formatError(caughtError, "Unable to clear qualifier overrides."));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
   async function cancelTournament() {
     if (!tournament || !canCancelTournament) {
       return;
@@ -1449,16 +1922,29 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     );
   }
 
-  const matchesByRound = rounds.map((round) => ({
+  const bracketRounds = isGroupStageTournament && playoffStage
+    ? rounds.filter((round) => round.stage_id === playoffStage.id)
+    : rounds.filter((round) => {
+        const stage = stages.find((candidate) => candidate.id === round.stage_id);
+
+        return stage?.bracket_type === "single_elimination";
+      });
+  const matchesByRound = bracketRounds.map((round) => ({
     round,
     matches: matches.filter(
-      (match) => match.round_id === round.id || match.round_number === round.round_number,
+      (match) =>
+        match.stage_id === round.stage_id &&
+        (match.round_id === round.id || match.round_number === round.round_number),
     ),
   }));
   const championName =
-    tournament.status === "completed" ? getChampionName(matches, profileMap) : null;
+    tournament.status === "completed" ? getChampionName(playoffMatches.length > 0 ? playoffMatches : matches, profileMap) : null;
   const selectedTab =
-    activeTab === "admin" && !canManageTournament ? "overview" : activeTab;
+    activeTab === "admin" && !canManageTournament
+      ? "overview"
+      : activeTab === "groups" && !isGroupStageTournament
+        ? "overview"
+        : activeTab;
   const currentUserMatch = user
     ? matches.find(
         (match) =>
@@ -1468,45 +1954,37 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           (match.player_one_id === user.id || match.player_two_id === user.id),
       )
     : null;
-  const matchSearchText = matchSearch.trim().toLowerCase();
-  const visibleMatchesByRound = matchesByRound
-    .map(({ round, matches: roundMatches }) => ({
-      round,
-      matches: roundMatches.filter((match) => {
-        if (!matchSearchText) {
-          return true;
-        }
+  const historyGroup = historyGroupId
+    ? groupsWithMembers.find((group) => group.id === historyGroupId) ?? null
+    : null;
+  const historyGroupMatches = historyGroup
+    ? groupStageMatches
+        .filter(
+          (match) =>
+            match.group_id === historyGroup.id &&
+            Boolean(match.player_one_id) &&
+            Boolean(match.player_two_id),
+        )
+        .sort(
+          (first, second) =>
+            first.round_number - second.round_number ||
+            (first.match_number ?? 0) - (second.match_number ?? 0) ||
+            (first.bracket_position ?? 0) - (second.bracket_position ?? 0),
+        )
+    : [];
+  const historyMatchesByRound = historyGroupMatches.reduce<
+    { matches: MatchRow[]; roundNumber: number }[]
+  >((roundGroups, match) => {
+    const existingGroup = roundGroups.find((group) => group.roundNumber === match.round_number);
 
-        const playerOne = describeMatchSlot(
-          match.player_one_id,
-          profileMap,
-          match.player_one_seed,
-          getMatchSlotFallback(match, "one"),
-        );
-        const playerTwo = describeMatchSlot(
-          match.player_two_id,
-          profileMap,
-          match.player_two_seed,
-          getMatchSlotFallback(match, "two"),
-        );
-        const finalScoreLabel = formatMatchFinalScore(match) ?? "";
+    if (existingGroup) {
+      existingGroup.matches.push(match);
+    } else {
+      roundGroups.push({ matches: [match], roundNumber: match.round_number });
+    }
 
-        return [
-          `match ${match.match_number ?? match.bracket_position}`,
-          round.name,
-          playerOne,
-          playerTwo,
-          matchStatusLabels[match.status],
-          matchFormatLabels[match.format],
-          finalScoreLabel,
-          getProfileName(profileMap, match.winner_id) ?? "",
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(matchSearchText);
-      }),
-    }))
-    .filter(({ matches: roundMatches }) => roundMatches.length > 0);
+    return roundGroups;
+  }, []);
 
   return (
     <>
@@ -1519,8 +1997,15 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               <span className="badge status-badge status-badge-danger">Stats Excluded</span>
             ) : null}
           </div>
-          <h1>{tournament.name}</h1>
-          <p className="muted">Organized by {organizer?.display_name ?? "Tournament staff"}</p>
+              <h1>{tournament.name}</h1>
+          <p className="muted">
+            Organized by{" "}
+            {organizer?.id ? (
+              <Link href={`/players/${organizer.id}`}>{organizer.display_name ?? "Tournament staff"}</Link>
+            ) : (
+              "Tournament staff"
+            )}
+          </p>
           {lastUpdatedAt ? (
             <p className="muted">Last updated {lastUpdatedAt.toLocaleTimeString()}.</p>
           ) : null}
@@ -1541,6 +2026,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       <TournamentTabs
         activeTab={selectedTab}
         canManageTournament={canManageTournament}
+        hasGroupStage={Boolean(isGroupStageTournament)}
         onTabChange={setActiveTab}
       />
 
@@ -1591,8 +2077,12 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                   {savingAction === "register" ? "Registering..." : "Register"}
                 </button>
               ) : hasGeneratedBracket ? (
-                <button className="button secondary-button" type="button" onClick={() => setActiveTab("bracket")}>
-                  View Bracket
+                <button
+                  className="button secondary-button"
+                  type="button"
+                  onClick={() => setActiveTab(isGroupStageTournament && !hasPlayoffBracket ? "groups" : "bracket")}
+                >
+                  {isGroupStageTournament && !hasPlayoffBracket ? "View Groups" : "View Bracket"}
                 </button>
               ) : null}
             </div>
@@ -1631,9 +2121,28 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                 <dt>Tournament</dt>
                 <dd>{tournamentFormatLabels[tournament.tournament_format]}</dd>
               </div>
+              {isGroupStageTournament ? (
+                <>
+                  <div>
+                    <dt>Groups</dt>
+                    <dd>
+                      {tournament.groups_count} groups of {tournament.group_size}, top{" "}
+                      {tournament.qualifiers_per_group} advance
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Group Matches</dt>
+                    <dd>{tournament.group_stage_format ? matchFormatLabels[tournament.group_stage_format] : "Not set"}</dd>
+                  </div>
+                </>
+              ) : null}
               <div>
-                <dt>Default Matches</dt>
-                <dd>{matchFormatLabels[tournament.format]}</dd>
+                <dt>Round Defaults</dt>
+                <dd>
+                  Pre-semis {matchFormatLabels[tournament.pre_semifinal_match_format]},
+                  semis {matchFormatLabels[tournament.semifinal_match_format]},
+                  final {matchFormatLabels[tournament.final_match_format]}
+                </dd>
               </div>
             </dl>
           </div>
@@ -1648,7 +2157,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               {checkedInParticipants.length} checked in
               {canManageTournament ? "" : " shown when visible to your account"}
             </p>
-            {championName ? <p className="winner-line">Winner: {championName}</p> : null}
+                {championName ? <p className="winner-line">Winner: {championName}</p> : null}
           </div>
         </section>
 
@@ -1748,7 +2257,9 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               participants.map((participant) => (
                 <article className="participant-row" key={participant.registrationId}>
                   <div>
-                    <strong>{participant.displayName}</strong>
+                    <strong>
+                      <Link href={`/players/${participant.userId}`}>{participant.displayName}</Link>
+                    </strong>
                     <p className="muted">
                       {participant.checkIn
                         ? `Checked in ${formatDateTime(participant.checkIn.checked_in_at)}`
@@ -1791,107 +2302,197 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         </section>
       </TournamentPanel>
 
+      {isGroupStageTournament ? (
+        <TournamentPanel active={selectedTab === "groups"} id="groups">
+          <section className="card">
+            <div className="section-heading">
+              <div>
+                <h2>Groups</h2>
+                <p className="muted">
+                  {tournament.groups_count} groups of {tournament.group_size}. Top{" "}
+                  {tournament.qualifiers_per_group} from each group advances to a{" "}
+                  {configuredPlayoffBracketSize ?? totalGroupQualifiers}-player playoff bracket.
+                </p>
+                <p className="muted">
+                  {getGroupStageFormatSummary({
+                    groupsCount: tournament.groups_count ?? 0,
+                    qualifiersPerGroup: tournament.qualifiers_per_group ?? 0,
+                  })}
+                  {configuredPlayoffByeCount > 0
+                    ? `. Highest playoff seeds receive ${configuredPlayoffByeCount} BYE${configuredPlayoffByeCount === 1 ? "" : "s"}.`
+                    : "."}
+                </p>
+              </div>
+              {hasPlayoffBracket ? (
+                <button className="button secondary-button" type="button" onClick={() => setActiveTab("bracket")}>
+                  View Playoff Bracket
+                </button>
+              ) : null}
+            </div>
+
+            {!hasGroupDraw ? (
+              <p className="muted">
+                Group draw has not been created yet. Staff can start the tournament after check-in; empty group slots become BYE/no-match slots.
+              </p>
+            ) : null}
+
+            {hasGroupDraw && !groupMatchesComplete ? (
+              <p className="muted">Group standings update as finalized group matches report results.</p>
+            ) : null}
+
+            {hasGroupDraw && groupMatchesComplete && !hasPlayoffBracket ? (
+              <p className={playoffBlockedReason ? "error" : "notice"}>
+                {playoffBlockedReason ?? "Group stage is complete. Playoff bracket generation will start automatically."}
+              </p>
+            ) : null}
+          </section>
+
+          {groupsWithMembers.length === 0 ? null : (
+            <div className="group-stage-grid">
+              {groupsWithMembers.map((group) => {
+                const standings = calculateGroupStandings(
+                  group,
+                  matches,
+                  tournament.qualifiers_per_group ?? 0,
+                );
+                const groupMatches = groupStageMatches.filter((match) => match.group_id === group.id);
+                const groupByeCount = group.members.filter(isGroupBye).length;
+                const realMemberCount = group.members.length - groupByeCount;
+
+                return (
+                  <section className="card group-card" key={group.id}>
+                    <div className="section-heading">
+                      <div>
+                        <h2>{group.name}</h2>
+                        <p className="muted">
+                          {realMemberCount} players, {groupMatches.length} matches
+                          {groupByeCount > 0 ? `, ${groupByeCount} BYE/no-match slot${groupByeCount === 1 ? "" : "s"}` : ""}
+                        </p>
+                      </div>
+                      <div className="role-actions">
+                        <button
+                          className="button secondary-button tiny-button"
+                          type="button"
+                          onClick={() => setHistoryGroupId(group.id)}
+                        >
+                          Match History
+                        </button>
+                        {canManageTournament ? (
+                          <button
+                            className="button secondary-button"
+                            disabled={savingAction === "clear-qualifiers"}
+                            type="button"
+                            onClick={() => clearManualQualifiers(group)}
+                          >
+                            Clear Overrides
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="table-scroll">
+                      <table className="standings-table">
+                        <thead>
+                          <tr>
+                            <th>Player</th>
+                            <th>W-L</th>
+                            <th>Games</th>
+                            <th>Diff</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {standings.map((standing) => {
+                            const member = group.members.find(
+                              (candidate) => candidate.user_id === standing.userId,
+                            );
+
+                            return (
+                              <tr key={standing.userId}>
+                                <td>
+                                  <PlayerProfileLink userId={standing.userId}>
+                                    {getProfileName(profileMap, standing.userId) ?? "Player"}
+                                  </PlayerProfileLink>
+                                </td>
+                                <td>
+                                  {standing.matchWins}-{standing.matchLosses}
+                                </td>
+                                <td>
+                                  {standing.gameWins}-{standing.gameLosses}
+                                </td>
+                                <td>{standing.gameDiff > 0 ? `+${standing.gameDiff}` : standing.gameDiff}</td>
+                                <td>
+                                  <span
+                                    className={[
+                                      "badge",
+                                      standing.status === "qualified"
+                                        ? "status-badge-gold"
+                                        : standing.status === "tiebreaker"
+                                          ? "status-badge-danger"
+                                          : "",
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" ")}
+                                  >
+                                    {standing.status === "qualified"
+                                      ? standing.isManualQualifier
+                                        ? "Qualified Override"
+                                        : "Qualified"
+                                      : standing.status === "tiebreaker"
+                                        ? "Tiebreaker Needed"
+                                        : "Eliminated"}
+                                  </span>
+                                  {canManageTournament && member ? (
+                                    <div className="inline-actions">
+                                      {Array.from(
+                                        { length: tournament.qualifiers_per_group ?? 0 },
+                                        (_, index) => index + 1,
+                                      ).map((qualifierSeed) => (
+                                        <button
+                                          className="button secondary-button tiny-button"
+                                          disabled={savingAction === "override-qualifier"}
+                                          key={qualifierSeed}
+                                          type="button"
+                                          onClick={() => setManualQualifier(member, qualifierSeed)}
+                                        >
+                                          Q{qualifierSeed}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          )}
+        </TournamentPanel>
+      ) : null}
+
       <TournamentPanel active={selectedTab === "bracket"} id="bracket">
         <section className="card bracket-card-shell">
-          <TournamentBracket
-            championName={championName}
-            matchesByRound={matchesByRound}
-            profiles={profileMap}
-          />
-        </section>
-      </TournamentPanel>
-
-      <TournamentPanel active={selectedTab === "matches"} id="matches">
-        <section className="card">
-          <div className="section-heading">
+          {isGroupStageTournament && !hasPlayoffBracket ? (
             <div>
-              <h2>Matches</h2>
-              <p className="muted">List view for scanning status, players, results, and playable match rooms.</p>
+              <h2>Playoff Bracket</h2>
+              <p className="muted">
+                Playoff bracket has not been generated yet. Complete group matches; the playoff bracket will generate automatically.
+              </p>
+              <button className="button secondary-button" type="button" onClick={() => setActiveTab("groups")}>
+                Go to Groups
+              </button>
             </div>
-          </div>
-          <div className="search-row">
-            <label htmlFor="match-search">
-              Search matches
-              <input
-                id="match-search"
-                placeholder="Player, round, status, or match number"
-                value={matchSearch}
-                onChange={(event) => setMatchSearch(event.target.value)}
-              />
-            </label>
-          </div>
-
-          {visibleMatchesByRound.length === 0 ? (
-            <p className="muted">No matches found.</p>
           ) : (
-            <div className="bracket-rounds">
-              {visibleMatchesByRound.map(({ round, matches: roundMatches }) => (
-                <section className="bracket-round" key={round.id}>
-                  <div className="section-heading">
-                    <h3>{round.name}</h3>
-                    <span className="badge">{matchFormatLabels[round.match_format]}</span>
-                  </div>
-                  <div className="match-list">
-                    {roundMatches.map((match) => {
-                      const shouldLinkMatch = isPlayableMatch(match);
-                      const nonPlayableMessage = getNonPlayableMatchMessage(match, profileMap);
-                      const finalScoreLabel = formatMatchFinalScore(match);
-
-                      return (
-                        <article className="match-row" key={match.id}>
-                          <div>
-                            <strong>Match {match.match_number ?? match.bracket_position}</strong>
-                            <p className="muted">
-                              {describeMatchSlot(
-                                match.player_one_id,
-                                profileMap,
-                                match.player_one_seed,
-                                getMatchSlotFallback(match, "one"),
-                              )}{" "}
-                              vs{" "}
-                              {describeMatchSlot(
-                                match.player_two_id,
-                                profileMap,
-                                match.player_two_seed,
-                                getMatchSlotFallback(match, "two"),
-                              )}
-                            </p>
-                            {nonPlayableMessage ? (
-                              <p className="muted">{nonPlayableMessage}</p>
-                            ) : match.winner_id ? (
-                              <p className="notice">
-                                Winner: {getProfileName(profileMap, match.winner_id) ?? "Player"}
-                                {finalScoreLabel ? ` ${finalScoreLabel}` : ""}
-                              </p>
-                            ) : match.status === "disputed" || match.status === "needs_admin" ? (
-                              <p className="error">Organizer review required.</p>
-                            ) : match.status === "result_reported" ? (
-                              <p className="muted">Result reports pending confirmation.</p>
-                            ) : null}
-                          </div>
-                          <div className="role-actions">
-                            <span className="badge">{matchFormatLabels[match.format]}</span>
-                            <MatchStatusBadge tone={getMatchStatusTone(match)}>
-                              {matchStatusLabels[match.status]}
-                            </MatchStatusBadge>
-                            {shouldLinkMatch ? (
-                              <Link
-                                className="button secondary-button button-link"
-                                href={`/matches/${match.id}`}
-                              >
-                                Match Room
-                              </Link>
-                            ) : (
-                              <span className="muted">No room action</span>
-                            )}
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                </section>
-              ))}
-            </div>
+            <TournamentBracket
+              championName={championName}
+              matchesByRound={matchesByRound}
+              profiles={profileMap}
+            />
           )}
         </section>
       </TournamentPanel>
@@ -1919,8 +2520,12 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             <p className="muted">Generated brackets use stored round formats when available.</p>
           </div>
           <div className="card">
-            <h2>Match Format</h2>
-            <p>{matchFormatLabels[tournament.format]}</p>
+            <h2>Round Formats</h2>
+            <p>
+              Pre-semis {matchFormatLabels[tournament.pre_semifinal_match_format]}, semis{" "}
+              {matchFormatLabels[tournament.semifinal_match_format]}, final{" "}
+              {matchFormatLabels[tournament.final_match_format]}
+            </p>
             <p className="muted">Players use assigned match rooms for lobby setup and result reporting.</p>
           </div>
         </section>
@@ -1993,7 +2598,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           <div className="management-actions">
             <div>
               <h3>Event Flow</h3>
-              <p className="muted">Normal organizer flow is registration open, registration closed, check-in, then bracket start.</p>
+              <p className="muted">Normal organizer flow is registration open, registration closed, check-in, then start tournament.</p>
             </div>
             <div className="role-actions">
               <button
@@ -2045,7 +2650,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             </div>
           </div>
 
-          {roles.isAdmin ? (
+          {roles.isAdmin && !isGroupStageTournament ? (
             <div className="management-actions">
               <div>
                 <h3>Admin Start Overrides</h3>
@@ -2092,29 +2697,22 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             </div>
           ) : null}
 
+          {!isGroupStageTournament ? (
+            <>
           <div className="management-actions">
             <div>
               <h3>Bracket Setup</h3>
               <p className={bracketWarning ? "muted" : undefined}>
-                {bracketWarning ?? "Ready to generate the bracket from checked-in players."}
+                {bracketWarning ?? "Ready to start from checked-in players."}
+              </p>
+              <p className="muted">
+                Bracket size: {selectedBracketSize} players. Round defaults: pre-semifinal{" "}
+                {matchFormatLabels[tournament.pre_semifinal_match_format]}, semifinal{" "}
+                {matchFormatLabels[tournament.semifinal_match_format]}, final{" "}
+                {matchFormatLabels[tournament.final_match_format]}.
               </p>
             </div>
             <div className="status-control">
-              <label htmlFor="bracket-size">
-                Bracket Size
-                <select
-                  id="bracket-size"
-                  disabled={hasGeneratedBracket}
-                  value={selectedBracketSize}
-                  onChange={(event) => updateBracketSize(Number(event.target.value))}
-                >
-                  {bracketSizes.map((size) => (
-                    <option key={size} value={size}>
-                      {size} players
-                    </option>
-                  ))}
-                </select>
-              </label>
               <label htmlFor="seeding-method">
                 Seeding
                 <select
@@ -2133,35 +2731,11 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             </div>
           </div>
 
-          <div className="round-format-grid">
-            {roundFormats.map((format, index) => (
-              <label key={`${selectedBracketSize}-${index}`} htmlFor={`round-format-${index}`}>
-                {getRoundName(selectedBracketSize, index + 1)}
-                <select
-                  id={`round-format-${index}`}
-                  disabled={hasGeneratedBracket}
-                  value={format}
-                  onChange={(event) => {
-                    const nextFormats = roundFormats.slice();
-                    nextFormats[index] = event.target.value as MatchFormat;
-                    setRoundFormats(nextFormats);
-                  }}
-                >
-                  {matchFormats.map((matchFormat) => (
-                    <option key={matchFormat} value={matchFormat}>
-                      {matchFormatLabels[matchFormat]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ))}
-          </div>
-
           <div className="management-actions">
             <div>
-              <h3>Generate Bracket And Start</h3>
+              <h3>Start Tournament</h3>
               <p className="muted">
-                Generation creates all rounds, seeds players by {seedingMethodLabels[selectedSeedingMethod].toLowerCase()}, first-round matches, bye advancements, and TBD placeholders.
+                Starts the tournament, seeds players by {seedingMethodLabels[selectedSeedingMethod].toLowerCase()}, creates the bracket, applies BYEs, and opens first-round matches.
               </p>
             </div>
             <div className="role-actions">
@@ -2175,9 +2749,9 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                   checkedInParticipants.length > selectedBracketSize
                 }
                 type="button"
-                onClick={generateBracket}
+                onClick={startTournament}
               >
-                {savingAction === "generate" ? "Starting..." : "Generate Bracket & Start Tournament"}
+                {savingAction === "generate" ? "Starting..." : "Start Tournament"}
               </button>
               <button
                 className="button danger-button"
@@ -2189,6 +2763,97 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               </button>
             </div>
           </div>
+            </>
+          ) : (
+            <>
+              <div className="management-actions">
+                <div>
+                  <h3>Group Stage Setup</h3>
+                  <p className={groupDrawWarning ? "error" : "muted"}>
+                    {groupDrawWarning ??
+                      (hasGroupDraw
+                        ? "Group draw has been generated."
+                        : "Ready to start from checked-in players.")}
+                  </p>
+                  <p className="muted">
+                    {tournament.groups_count} groups of {tournament.group_size}, top{" "}
+                    {tournament.qualifiers_per_group} advance. Group matches are{" "}
+                    {tournament.group_stage_format
+                      ? matchFormatLabels[tournament.group_stage_format]
+                      : "not set"}
+                    .
+                  </p>
+                  {checkedInParticipants.length < (tournament.groups_count ?? 0) * 2 ? (
+                    <p className="muted">
+                      Underfilled starts are allowed for testing; checked-in players are packed into
+                      the first active group slots and unused groups become BYE/no-match groups.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="status-control">
+                  <label htmlFor="group-draw-method">
+                    Draw Method
+                    <select
+                      id="group-draw-method"
+                      disabled={hasGroupDraw}
+                      value={selectedSeedingMethod}
+                      onChange={(event) => setSelectedSeedingMethod(event.target.value as SeedingMethod)}
+                    >
+                      {seedingMethods.map((method) => (
+                        <option key={method} value={method}>
+                          {seedingMethodLabels[method]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <div className="management-actions">
+                <div>
+                  <h3>Start Tournament</h3>
+                  <p className="muted">
+                    Starts the tournament, draws groups, and creates all round-robin group match rooms. Empty group slots are labeled BYE/no-match and skipped.
+                  </p>
+                </div>
+                <div className="role-actions">
+                  <button
+                    className="button"
+                    disabled={
+                      savingAction === "generate-groups" ||
+                      hasGroupDraw ||
+                      tournament.status !== "check_in" ||
+                      Boolean(groupDrawWarning)
+                    }
+                    type="button"
+                    onClick={startTournament}
+                  >
+                    {savingAction === "generate-groups" ? "Starting..." : "Start Tournament"}
+                  </button>
+                  <button
+                    className="button danger-button"
+                    disabled={savingAction === "reset-groups" || !hasGroupDraw || hasPlayoffBracket}
+                    type="button"
+                    onClick={resetGroupDraw}
+                  >
+                    {savingAction === "reset-groups" ? "Resetting..." : "Reset Group Draw"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="management-actions">
+                <div>
+                  <h3>Playoff Handoff</h3>
+                  <p className={playoffBlockedReason ? "error" : "muted"}>
+                    {hasPlayoffBracket
+                      ? "Playoff bracket has been generated."
+                      : playoffBlockedReason ??
+                        `The ${totalGroupQualifiers}-player single-elimination playoff bracket will generate automatically when all group matches are finalized.`}
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="management-actions">
             <div>
@@ -2263,6 +2928,109 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           </div>
           </section>
         </TournamentPanel>
+      ) : null}
+
+      {historyGroup ? (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => setHistoryGroupId(null)}
+        >
+          <section
+            aria-labelledby="group-history-title"
+            aria-modal="true"
+            className="modal-card group-history-modal"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-heading">
+              <div>
+                <h2 id="group-history-title">{historyGroup.name} Match History</h2>
+                <p className="muted">Real player matches only. BYE/no-match slots are hidden.</p>
+              </div>
+              <button
+                className="button secondary-button"
+                type="button"
+                onClick={() => setHistoryGroupId(null)}
+              >
+                Close
+              </button>
+            </div>
+
+            {historyMatchesByRound.length === 0 ? (
+              <p className="muted">No player-vs-player group matches were created for this group.</p>
+            ) : (
+              <div className="match-history-list">
+                {historyMatchesByRound.map((roundGroup) => (
+                  <section key={roundGroup.roundNumber}>
+                    <h3>Round {roundGroup.roundNumber}</h3>
+                    <div className="match-list">
+                      {roundGroup.matches.map((match) => {
+                        const finalScoreLabel = formatMatchFinalScore(match);
+                        const forfeitLabel = isForfeitResult(match) ? "Forfeit" : null;
+
+                        return (
+                          <article className="match-history-row" key={match.id}>
+                            <div>
+                              <h3>Match {match.match_number ?? match.bracket_position}</h3>
+                              <p className="muted">
+                                <PlayerProfileLink userId={match.player_one_id}>
+                                  {describeMatchSlot(
+                                    match.player_one_id,
+                                    profileMap,
+                                    match.player_one_seed,
+                                    "TBD",
+                                  )}
+                                </PlayerProfileLink>{" "}
+                                vs{" "}
+                                <PlayerProfileLink userId={match.player_two_id}>
+                                  {describeMatchSlot(
+                                    match.player_two_id,
+                                    profileMap,
+                                    match.player_two_seed,
+                                    "TBD",
+                                  )}
+                                </PlayerProfileLink>
+                              </p>
+                              {match.winner_id ? (
+                                <p className="notice">
+                                  Winner:{" "}
+                                  <PlayerProfileLink userId={match.winner_id}>
+                                    {getProfileName(profileMap, match.winner_id) ?? "Player"}
+                                  </PlayerProfileLink>
+                                  {finalScoreLabel ? ` ${finalScoreLabel}` : ""}
+                                </p>
+                              ) : (
+                                <p className="muted">Winner pending.</p>
+                              )}
+                            </div>
+                            <div className="match-history-meta">
+                              <span className="badge">{matchFormatLabels[match.format]}</span>
+                              {forfeitLabel ? (
+                                <span className="badge status-badge-danger">{forfeitLabel}</span>
+                              ) : null}
+                              <MatchStatusBadge tone={getMatchStatusTone(match)}>
+                                {matchStatusLabels[match.status]}
+                              </MatchStatusBadge>
+                              {isPlayableMatch(match) ? (
+                                <Link
+                                  className="button secondary-button button-link"
+                                  href={`/matches/${match.id}`}
+                                >
+                                  Match Room
+                                </Link>
+                              ) : null}
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
       ) : null}
     </>
   );
