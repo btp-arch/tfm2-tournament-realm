@@ -9,11 +9,13 @@ import {
   loadActiveAction,
   type ActiveAction,
 } from "@/lib/notifications";
+import { getCountdownLabel } from "@/lib/tournament-timing";
 
 export function ActiveActionBanner() {
   const [supabase] = useState(() => createClient());
   const [action, setAction] = useState<ActiveAction | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [now, setNow] = useState(() => new Date());
 
   const loadAction = useCallback(async () => {
     const { data } = await supabase.auth.getUser();
@@ -57,6 +59,16 @@ export function ActiveActionBanner() {
     };
   }, [loadAction, supabase]);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   if (!isLoaded || !action) {
     return null;
   }
@@ -66,6 +78,11 @@ export function ActiveActionBanner() {
       <div>
         <strong>{action.title}</strong>
         <p>{action.body}</p>
+        {action.deadlineAt ? (
+          <p className="active-action-timer">
+            {action.timerLabel ?? "Deadline"}: {getCountdownLabel(new Date(action.deadlineAt), false, now)}
+          </p>
+        ) : null}
       </div>
       <div className="active-action-links">
         <Link className="button button-link" href={action.href}>

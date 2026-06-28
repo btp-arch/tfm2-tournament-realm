@@ -8,13 +8,29 @@ import {
   isGroupBye,
   type GroupWithMembers,
 } from "@/lib/group-stage";
-import { formatMatchFinalScore, type DisputeRow, type MatchEvidenceRow, type MatchReportRow, type MatchRow, type TournamentRow } from "@/lib/tournaments";
+import {
+  calculatePausedAdjustedDeadline,
+  getCheckInDeadline,
+  getReplacementDeadline,
+} from "@/lib/tournament-timing";
+import {
+  formatMatchFinalScore,
+  type DisputeRow,
+  type MatchCheckInRow,
+  type MatchEvidenceRow,
+  type MatchReportRow,
+  type MatchRow,
+  type TournamentRegistrationRow,
+  type TournamentRoundRow,
+  type TournamentRow,
+} from "@/lib/tournaments";
 
 export type LiveControlParticipant = {
   checkIn: unknown | null;
   displayName: string;
+  isReplacement?: boolean;
   manualSeed: number | null;
-  registrationStatus: string;
+  registrationStatus: TournamentRegistrationRow["status"];
   userId: string;
 };
 
@@ -93,6 +109,92 @@ export type LiveControlAction = {
   tone: "normal" | "attention" | "blocked" | "ready";
 };
 
+export type TimerActionKind =
+  | "apply_check_in_expiry"
+  | "apply_replacement_expiry"
+  | "generate_group_draw"
+  | "generate_bracket"
+  | "apply_group_round_expiry"
+  | "apply_bracket_round_expiry";
+
+export type ExpiredTimingAction = {
+  blocker: string | null;
+  detail: string;
+  enabled: boolean;
+  kind: TimerActionKind;
+  label: string;
+};
+
+export type TimingCellState =
+  | "waiting"
+  | "open"
+  | "active"
+  | "expired"
+  | "complete"
+  | "blocked"
+  | "empty";
+
+export type GroupTimingCell = {
+  deadline: Date | null;
+  detail: string;
+  groupId: string;
+  groupName: string;
+  matchCount: number;
+  resolvedCount: number;
+  roundNumber: number;
+  state: TimingCellState;
+};
+
+export type GroupTimingWave = {
+  blockedGroups: string[];
+  complete: boolean;
+  deadline: Date | null;
+  expired: boolean;
+  roundNumber: number;
+  started: boolean;
+  waitingOnGroups: string[];
+};
+
+export type GroupTimingMatrix = {
+  cells: GroupTimingCell[];
+  groups: GroupWithMembers[];
+  roundNumbers: number[];
+  waves: GroupTimingWave[];
+};
+
+export type BracketTimingRow = {
+  deadline: Date | null;
+  detail: string;
+  matchCount: number;
+  resolvedCount: number;
+  roundName: string;
+  roundNumber: number;
+  state: TimingCellState;
+};
+
+export type MatchTimeoutOutcomeKind =
+  | "already_resolved"
+  | "forfeit"
+  | "no_contest"
+  | "staff_review"
+  | "needs_review";
+
+export type MatchTimeoutOutcomeCandidate = {
+  checkedInUserIds: string[];
+  detail: string;
+  kind: MatchTimeoutOutcomeKind;
+  matchId: string;
+  reportCount: number;
+  winnerId: string | null;
+};
+
+const inactiveRegistrationStatuses = new Set<TournamentRegistrationRow["status"]>([
+  "withdrawn",
+  "rejected",
+  "missed_check_in",
+  "excluded",
+]);
+
 const actionableMatchStatuses = new Set<MatchRow["status"]>([
   "assigned",
   "awaiting_guest_join",
@@ -104,8 +206,30 @@ const actionableMatchStatuses = new Set<MatchRow["status"]>([
   "replay_required",
 ]);
 
+function isResolvedForTiming(match: MatchRow) {
+  return (
+    match.status === "finalized" ||
+    match.status === "confirmed" ||
+    match.status === "forfeit" ||
+    match.status === "bye"
+  );
+}
+
+function isBlockedForTiming(match: MatchRow) {
+  return match.status === "disputed" || match.status === "needs_admin";
+}
+
 function isEligibleParticipant(participant: LiveControlParticipant) {
-  return participant.registrationStatus !== "withdrawn" && participant.registrationStatus !== "rejected";
+  return !inactiveRegistrationStatuses.has(participant.registrationStatus);
+}
+
+function isActiveFieldParticipant(participant: LiveControlParticipant) {
+  return (
+    participant.registrationStatus === "active" ||
+    participant.registrationStatus === "replaced" ||
+    participant.registrationStatus === "checked_in" ||
+    Boolean(participant.checkIn)
+  );
 }
 
 function getProfileName(
@@ -176,7 +300,10 @@ export function formatLiveControlBlockerReason(reason: string | null | undefined
 
 export function getManualSeedSummary(participants: LiveControlParticipant[]) {
   const seededParticipants = participants.filter(
-    (participant) => isEligibleParticipant(participant) && participant.manualSeed !== null,
+    (participant) =>
+      isEligibleParticipant(participant) &&
+      !participant.isReplacement &&
+      participant.manualSeed !== null,
   );
   const seedsByNumber = seededParticipants.reduce<Map<number, LiveControlParticipant[]>>(
     (bySeed, participant) => {
@@ -199,6 +326,90 @@ export function getManualSeedSummary(participants: LiveControlParticipant[]) {
     count: seededParticipants.length,
     duplicateSeeds,
     hasWarnings: duplicateSeeds.length > 0,
+  };
+}
+
+export function getCheckInExpirySummary(
+  tournament: TournamentRow,
+  participants: LiveControlParticipant[],
+  now = new Date(),
+) {
+  const deadline = getCheckInDeadline(tournament);
+  const eligibleParticipants = participants.filter(
+    (participant) =>
+      participant.registrationStatus === "pending" ||
+      participant.registrationStatus === "accepted" ||
+      participant.registrationStatus === "checked_in" ||
+      participant.registrationStatus === "active" ||
+      participant.registrationStatus === "replaced",
+  );
+  const checkedInParticipants = eligibleParticipants.filter((participant) => Boolean(participant.checkIn));
+  const missedParticipants = eligibleParticipants.filter((participant) => !participant.checkIn);
+  const expired = Boolean(
+    tournament.status === "check_in" &&
+      deadline &&
+      !tournament.timers_paused_at &&
+      deadline.getTime() <= now.getTime(),
+  );
+
+  return {
+    checkedInCount: checkedInParticipants.length,
+    checkedInParticipants,
+    deadline,
+    expired,
+    missedCount: missedParticipants.length,
+    missedParticipants,
+    summary: expired
+      ? `Check-in expired: ${checkedInParticipants.length} checked in, ${missedParticipants.length} missed check-in.`
+      : `Check-in: ${checkedInParticipants.length}/${eligibleParticipants.length} players checked in.`,
+  };
+}
+
+export function getReplacementWindowSummary(
+  tournament: TournamentRow,
+  participants: LiveControlParticipant[],
+  now = new Date(),
+) {
+  const deadline = getReplacementDeadline(tournament);
+  const checkInDeadline = getCheckInDeadline(tournament);
+  const activeParticipants = participants.filter(isActiveFieldParticipant);
+  const replacementParticipants = activeParticipants.filter((participant) => participant.isReplacement);
+  const capacity =
+    tournament.tournament_format === "group_stage_playoff" && tournament.group_size && tournament.groups_count
+      ? tournament.group_size * tournament.groups_count
+      : tournament.max_players;
+  const openSpots = capacity === null ? 0 : Math.max(capacity - activeParticipants.length, 0);
+  const checkInExpired = Boolean(checkInDeadline && checkInDeadline.getTime() <= now.getTime());
+  const active = Boolean(
+    tournament.status === "check_in" &&
+      tournament.replacement_window_enabled &&
+      !tournament.timers_paused_at &&
+      checkInExpired &&
+      deadline &&
+      deadline.getTime() > now.getTime() &&
+      openSpots > 0,
+  );
+  const expired = Boolean(
+    tournament.status === "check_in" &&
+      tournament.replacement_window_enabled &&
+      !tournament.timers_paused_at &&
+      deadline &&
+      deadline.getTime() <= now.getTime(),
+  );
+
+  return {
+    active,
+    activeCount: activeParticipants.length,
+    capacity,
+    deadline,
+    expired,
+    openSpots,
+    replacementCount: replacementParticipants.length,
+    summary: active
+      ? `Replacement window active: ${openSpots} open spot${openSpots === 1 ? "" : "s"}.`
+      : expired
+        ? `Replacement expired: ${openSpots} open spot${openSpots === 1 ? "" : "s"} remain.`
+        : "Replacement window is not active.",
   };
 }
 
@@ -233,6 +444,512 @@ export function getRegistrationCheckInSummary(
     registeredParticipants,
     singleElimByeCount,
   };
+}
+
+export function getMatchTimeoutOutcomeCandidate(
+  match: MatchRow,
+  checkIns: MatchCheckInRow[],
+  reports: MatchReportRow[],
+): MatchTimeoutOutcomeCandidate {
+  const checkedInUserIds = checkIns
+    .filter(
+      (checkIn) =>
+        checkIn.match_id === match.id &&
+        (checkIn.user_id === match.player_one_id || checkIn.user_id === match.player_two_id),
+    )
+    .map((checkIn) => checkIn.user_id);
+  const matchReports = reports.filter((report) => report.match_id === match.id);
+  const reportCount = matchReports.length;
+
+  if (
+    match.status === "finalized" ||
+    match.status === "confirmed" ||
+    match.status === "disputed" ||
+    match.status === "forfeit" ||
+    match.status === "bye" ||
+    match.result_type === "no_contest"
+  ) {
+    return {
+      checkedInUserIds,
+      detail: "Already resolved; no timer action will be applied.",
+      kind: "already_resolved",
+      matchId: match.id,
+      reportCount,
+      winnerId: match.winner_id,
+    };
+  }
+
+  if (reportCount > 0) {
+    return {
+      checkedInUserIds,
+      detail:
+        reportCount === 1
+          ? "One player submitted a result; staff review is required before awarding a result."
+          : "Player reports exist; existing confirmation or dispute handling should resolve this match.",
+      kind: "needs_review",
+      matchId: match.id,
+      reportCount,
+      winnerId: null,
+    };
+  }
+
+  if (checkedInUserIds.length === 1) {
+    return {
+      checkedInUserIds,
+      detail: "One player checked into the room and one did not; forfeit candidate.",
+      kind: "forfeit",
+      matchId: match.id,
+      reportCount,
+      winnerId: checkedInUserIds[0] ?? null,
+    };
+  }
+
+  if (checkedInUserIds.length === 0) {
+    return {
+      checkedInUserIds,
+      detail: "Neither player checked into the room; no-contest candidate.",
+      kind: "no_contest",
+      matchId: match.id,
+      reportCount,
+      winnerId: null,
+    };
+  }
+
+  return {
+    checkedInUserIds,
+    detail: "Both players checked in but no result was submitted; staff review is required.",
+    kind: "staff_review",
+    matchId: match.id,
+    reportCount,
+    winnerId: null,
+  };
+}
+
+export function formatTimerOutcomeSummary(candidate: MatchTimeoutOutcomeCandidate) {
+  if (candidate.kind === "forfeit") {
+    return "FF candidate";
+  }
+
+  if (candidate.kind === "no_contest") {
+    return "No contest candidate";
+  }
+
+  if (candidate.kind === "needs_review" || candidate.kind === "staff_review") {
+    return "Needs organizer review";
+  }
+
+  return "No action";
+}
+
+export function shouldCountTimedOutcomeForRecords(
+  match: Pick<MatchRow, "result_type" | "status">,
+) {
+  return match.status === "finalized" && match.result_type === "played";
+}
+
+export function getRoundExpirySummary({
+  checkIns,
+  groups,
+  matches,
+  phase,
+  reports,
+  tournament,
+}: {
+  checkIns: MatchCheckInRow[];
+  groups: GroupWithMembers[];
+  matches: MatchRow[];
+  phase: "group" | "bracket";
+  reports: MatchReportRow[];
+  tournament: TournamentRow;
+}) {
+  const deadline =
+    phase === "group"
+      ? calculatePausedAdjustedDeadline(tournament.current_group_round_deadline, tournament)
+      : calculatePausedAdjustedDeadline(tournament.current_bracket_round_deadline, tournament);
+  const expired = Boolean(deadline && !tournament.timers_paused_at && deadline.getTime() <= Date.now());
+  const scopedMatches = matches.filter((match) =>
+    phase === "group" ? Boolean(match.group_id) : !match.group_id,
+  );
+  const unresolvedScopedMatches = scopedMatches.filter(
+    (match) =>
+      match.player_one_id &&
+      match.player_two_id &&
+      match.status !== "finalized" &&
+      match.status !== "confirmed" &&
+      match.status !== "disputed" &&
+      match.status !== "forfeit" &&
+      match.status !== "bye",
+  );
+  const currentRoundNumber = unresolvedScopedMatches.reduce<number | null>(
+    (currentRound, match) =>
+      currentRound === null ? match.round_number : Math.min(currentRound, match.round_number),
+    null,
+  );
+  const unresolvedMatches = currentRoundNumber === null
+    ? []
+    : unresolvedScopedMatches.filter((match) => match.round_number === currentRoundNumber);
+  const candidates = unresolvedMatches.map((match) =>
+    getMatchTimeoutOutcomeCandidate(match, checkIns, reports),
+  );
+  const groupedCandidates = groups.map((group) => {
+    const groupCandidates = candidates.filter((candidate) =>
+      scopedMatches.some((match) => match.id === candidate.matchId && match.group_id === group.id),
+    );
+
+    return {
+      candidates: groupCandidates,
+      groupId: group.id,
+      groupName: group.name,
+      unresolvedCount: groupCandidates.length,
+    };
+  });
+
+  return {
+    candidates,
+    deadline,
+    expired,
+    forfeitCount: candidates.filter((candidate) => candidate.kind === "forfeit").length,
+    groupedCandidates,
+    needsReviewCount: candidates.filter(
+      (candidate) => candidate.kind === "needs_review" || candidate.kind === "staff_review",
+    ).length,
+    noContestCount: candidates.filter((candidate) => candidate.kind === "no_contest").length,
+    phase,
+    unresolvedCount: unresolvedMatches.length,
+  };
+}
+
+export function getReadyGroupRoundMatches(matches: MatchRow[]) {
+  return matches.filter(
+    (match) =>
+      match.group_id &&
+      match.player_one_id &&
+      match.player_two_id &&
+      (match.status === "assigned" || match.status === "check_in_open" || match.status === "ready_to_setup"),
+  );
+}
+
+export function getReadyBracketMatches(matches: MatchRow[]) {
+  return matches.filter(
+    (match) =>
+      !match.group_id &&
+      match.player_one_id &&
+      match.player_two_id &&
+      (match.status === "assigned" || match.status === "check_in_open" || match.status === "ready_to_setup"),
+  );
+}
+
+export function applyReadyMatchOpenings(matches: MatchRow[]) {
+  return matches.filter(
+    (match) =>
+      match.player_one_id &&
+      match.player_two_id &&
+      (match.status === "pending" || match.status === "blocked"),
+  );
+}
+
+export function getGroupTimingMatrix({
+  groups,
+  matches,
+  rounds,
+  tournament,
+}: {
+  groups: GroupWithMembers[];
+  matches: MatchRow[];
+  rounds: TournamentRoundRow[];
+  tournament: TournamentRow;
+}): GroupTimingMatrix {
+  const groupMatches = matches.filter((match) => match.group_id);
+  const roundNumbers = Array.from(
+    new Set([
+      ...rounds
+        .filter((round) => groupMatches.some((match) => match.round_id === round.id))
+        .map((round) => round.round_number),
+      ...groupMatches.map((match) => match.round_number),
+    ]),
+  ).sort((first, second) => first - second);
+  const roundByNumber = new Map(
+    rounds
+      .filter((round) => roundNumbers.includes(round.round_number))
+      .map((round) => [round.round_number, round]),
+  );
+  const cells = groups.flatMap((group) =>
+    roundNumbers.map<GroupTimingCell>((roundNumber) => {
+      const matchesInCell = groupMatches.filter(
+        (match) => match.group_id === group.id && match.round_number === roundNumber,
+      );
+      const realMatches = matchesInCell.filter((match) => match.player_one_id && match.player_two_id);
+      const resolvedCount = realMatches.filter(isResolvedForTiming).length;
+      const blocked = realMatches.some(isBlockedForTiming);
+      const complete = realMatches.length > 0 && resolvedCount === realMatches.length;
+      const open = realMatches.some(
+        (match) =>
+          match.status === "assigned" ||
+          match.status === "check_in_open" ||
+          match.status === "awaiting_host_setup" ||
+          match.status === "awaiting_guest_join" ||
+          match.status === "ready_to_setup" ||
+          match.status === "in_game" ||
+          match.status === "result_reported" ||
+          match.status === "replay_required",
+      );
+      const round = roundByNumber.get(roundNumber);
+      const deadline = round?.deadline_at
+        ? calculatePausedAdjustedDeadline(round.deadline_at, tournament)
+        : null;
+      const expired = Boolean(deadline && !tournament.timers_paused_at && deadline.getTime() <= Date.now());
+      const state: TimingCellState =
+        realMatches.length === 0
+          ? "empty"
+          : complete
+            ? "complete"
+            : blocked
+              ? "blocked"
+              : expired && open
+                ? "expired"
+                : deadline && open
+                  ? "active"
+                  : open
+                    ? "open"
+                    : "waiting";
+
+      return {
+        deadline,
+        detail:
+          state === "waiting"
+            ? "Waiting for this group's prior round."
+            : `${resolvedCount}/${realMatches.length} real matches resolved.`,
+        groupId: group.id,
+        groupName: group.name,
+        matchCount: realMatches.length,
+        resolvedCount,
+        roundNumber,
+        state,
+      };
+    }),
+  );
+  const waves = roundNumbers.map<GroupTimingWave>((roundNumber) => {
+    const round = roundByNumber.get(roundNumber);
+    const deadline = round?.deadline_at
+      ? calculatePausedAdjustedDeadline(round.deadline_at, tournament)
+      : null;
+    const waitingOnGroups = groups
+      .filter((group) => {
+        if (roundNumber === 1) {
+          return false;
+        }
+
+        const previousMatches = groupMatches.filter(
+          (match) => match.group_id === group.id && match.round_number === roundNumber - 1,
+        );
+
+        return previousMatches.some((match) => !isResolvedForTiming(match));
+      })
+      .map((group) => group.name);
+    const blockedGroups = groups
+      .filter((group) =>
+        groupMatches.some(
+          (match) =>
+            match.group_id === group.id &&
+            match.round_number === roundNumber &&
+            isBlockedForTiming(match),
+        ),
+      )
+      .map((group) => group.name);
+
+    return {
+      blockedGroups,
+      complete: cells
+        .filter((cell) => cell.roundNumber === roundNumber && cell.matchCount > 0)
+        .every((cell) => cell.state === "complete"),
+      deadline,
+      expired: Boolean(deadline && !tournament.timers_paused_at && deadline.getTime() <= Date.now()),
+      roundNumber,
+      started: Boolean(round?.timer_started_at),
+      waitingOnGroups,
+    };
+  });
+
+  return {
+    cells,
+    groups,
+    roundNumbers,
+    waves,
+  };
+}
+
+export function getBracketTimingRows({
+  matches,
+  rounds,
+  tournament,
+}: {
+  matches: MatchRow[];
+  rounds: TournamentRoundRow[];
+  tournament: TournamentRow;
+}): BracketTimingRow[] {
+  const bracketMatches = matches.filter((match) => !match.group_id);
+  const roundNumbers = Array.from(
+    new Set([
+      ...rounds
+        .filter((round) => bracketMatches.some((match) => match.round_id === round.id))
+        .map((round) => round.round_number),
+      ...bracketMatches.map((match) => match.round_number),
+    ]),
+  ).sort((first, second) => first - second);
+  const roundByNumber = new Map(rounds.map((round) => [round.round_number, round]));
+
+  return roundNumbers.map<BracketTimingRow>((roundNumber) => {
+    const roundMatches = bracketMatches.filter((match) => match.round_number === roundNumber);
+    const realMatches = roundMatches.filter((match) => match.player_one_id && match.player_two_id);
+    const resolvedCount = realMatches.filter(isResolvedForTiming).length;
+    const blocked = realMatches.some(isBlockedForTiming);
+    const complete = realMatches.length > 0 && resolvedCount === realMatches.length;
+    const open = realMatches.some((match) => match.status !== "pending" && match.status !== "blocked");
+    const round = roundByNumber.get(roundNumber);
+    const deadline = round?.deadline_at
+      ? calculatePausedAdjustedDeadline(round.deadline_at, tournament)
+      : null;
+    const expired = Boolean(deadline && !tournament.timers_paused_at && deadline.getTime() <= Date.now());
+    const state: TimingCellState =
+      realMatches.length === 0
+        ? "empty"
+        : complete
+          ? "complete"
+          : blocked
+            ? "blocked"
+            : expired && open
+              ? "expired"
+              : deadline && open
+                ? "active"
+                : open
+                  ? "open"
+                  : "waiting";
+
+    return {
+      deadline,
+      detail: `${resolvedCount}/${realMatches.length} real matches resolved.`,
+      matchCount: realMatches.length,
+      resolvedCount,
+      roundName: round?.name ?? `Round ${roundNumber}`,
+      roundNumber,
+      state,
+    };
+  });
+}
+
+export function getTimerActionBlockerReason({
+  canManageTournament,
+  isPaused,
+  isExpired,
+}: {
+  canManageTournament: boolean;
+  isExpired: boolean;
+  isPaused: boolean;
+}) {
+  if (!canManageTournament) {
+    return "Only tournament staff can apply expired timing actions.";
+  }
+
+  if (isPaused) {
+    return "Timers are paused. Resume before applying expired timing actions.";
+  }
+
+  if (!isExpired) {
+    return "The timer has not expired yet.";
+  }
+
+  return null;
+}
+
+export function getExpiredTimingActions({
+  bracketReadiness,
+  canManageTournament,
+  checkInSummary,
+  groupDrawReadiness,
+  hasGeneratedBracket,
+  replacementSummary,
+  roundSummary,
+  tournament,
+}: {
+  bracketReadiness: LiveControlReadiness | null;
+  canManageTournament: boolean;
+  checkInSummary: ReturnType<typeof getCheckInExpirySummary> | null;
+  groupDrawReadiness: LiveControlReadiness | null;
+  hasGeneratedBracket: boolean;
+  replacementSummary: ReturnType<typeof getReplacementWindowSummary> | null;
+  roundSummary: ReturnType<typeof getRoundExpirySummary> | null;
+  tournament: TournamentRow;
+}): ExpiredTimingAction[] {
+  const actions: ExpiredTimingAction[] = [];
+  const paused = Boolean(tournament.timers_paused_at);
+
+  if (checkInSummary?.expired) {
+    const blocker = getTimerActionBlockerReason({
+      canManageTournament,
+      isExpired: checkInSummary.expired,
+      isPaused: paused,
+    });
+
+    actions.push({
+      blocker,
+      detail: `${checkInSummary.checkedInCount} checked in; ${checkInSummary.missedCount} will be marked missed check-in and excluded from draw generation.`,
+      enabled: blocker === null,
+      kind: "apply_check_in_expiry",
+      label: "Apply check-in close",
+    });
+  }
+
+  if (replacementSummary?.expired && !hasGeneratedBracket) {
+    const blocker = getTimerActionBlockerReason({
+      canManageTournament,
+      isExpired: replacementSummary.expired,
+      isPaused: paused,
+    });
+
+    actions.push({
+      blocker,
+      detail: `${replacementSummary.activeCount} active players; ${replacementSummary.openSpots} open spot${replacementSummary.openSpots === 1 ? "" : "s"} remain.`,
+      enabled: blocker === null,
+      kind: "apply_replacement_expiry",
+      label: "Apply replacement close",
+    });
+
+    if (tournament.tournament_format === "group_stage_playoff") {
+      actions.push({
+        blocker: groupDrawReadiness?.blocker ?? null,
+        detail: groupDrawReadiness?.detail ?? "Generate group draw from active checked-in and replacement players.",
+        enabled: Boolean(canManageTournament && groupDrawReadiness?.allowed),
+        kind: "generate_group_draw",
+        label: "Generate group draw",
+      });
+    } else {
+      actions.push({
+        blocker: bracketReadiness?.blocker ?? null,
+        detail: bracketReadiness?.detail ?? "Generate bracket from active checked-in and replacement players.",
+        enabled: Boolean(canManageTournament && bracketReadiness?.allowed),
+        kind: "generate_bracket",
+        label: "Generate bracket",
+      });
+    }
+  }
+
+  if (tournament.status === "active" && roundSummary?.expired) {
+    const blocker = getTimerActionBlockerReason({
+      canManageTournament,
+      isExpired: roundSummary.expired,
+      isPaused: paused,
+    });
+
+    actions.push({
+      blocker,
+      detail: `${roundSummary.unresolvedCount} unresolved match${roundSummary.unresolvedCount === 1 ? "" : "es"}: ${roundSummary.forfeitCount} FF, ${roundSummary.noContestCount} no contest, ${roundSummary.needsReviewCount} review.`,
+      enabled: blocker === null,
+      kind: roundSummary.phase === "group" ? "apply_group_round_expiry" : "apply_bracket_round_expiry",
+      label: roundSummary.phase === "group" ? "Apply expired group outcomes" : "Apply expired bracket outcomes",
+    });
+  }
+
+  return actions;
 }
 
 export function getGroupDrawReadiness(

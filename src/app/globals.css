@@ -182,6 +182,11 @@ textarea {
   color: var(--muted);
 }
 
+.active-action-timer {
+  color: var(--gold-soft) !important;
+  font-weight: 700;
+}
+
 .active-action-links {
   display: flex;
   gap: .5rem;
@@ -711,6 +716,88 @@ textarea {
 .management-actions h3,
 .status-group h3 {
   margin: 0 0 .35rem;
+}
+
+.timing-map {
+  display: grid;
+  gap: .85rem;
+  margin-top: 1rem;
+}
+
+.timing-grid {
+  display: grid;
+  grid-template-columns: minmax(92px, 130px) repeat(var(--timing-round-columns), minmax(118px, 1fr));
+  gap: .45rem;
+  overflow-x: auto;
+  padding-bottom: .2rem;
+}
+
+.timing-heading,
+.timing-group-name,
+.timing-cell {
+  min-height: 58px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: .55rem;
+}
+
+.timing-heading,
+.timing-group-name {
+  display: grid;
+  align-content: center;
+  background: var(--surface-subtle);
+  color: #dce8f8;
+  font-weight: 700;
+}
+
+.timing-cell {
+  display: grid;
+  gap: .2rem;
+  align-content: start;
+  background: #101927;
+  color: var(--muted);
+  font-size: .85rem;
+}
+
+.timing-cell strong {
+  color: var(--text);
+  font-size: .86rem;
+}
+
+.timing-cell-active {
+  border-color: var(--blue);
+  background: rgba(91, 142, 207, .16);
+}
+
+.timing-cell-open {
+  border-color: var(--gold);
+  background: rgba(215, 170, 69, .12);
+}
+
+.timing-cell-expired,
+.timing-cell-blocked {
+  border-color: var(--red);
+  background: rgba(208, 90, 100, .14);
+}
+
+.timing-cell-complete {
+  border-color: rgba(139, 214, 163, .7);
+  background: rgba(139, 214, 163, .1);
+}
+
+.timing-cell-empty,
+.timing-cell-waiting {
+  opacity: .78;
+}
+
+.timing-wave-list {
+  display: grid;
+  gap: .35rem;
+  margin-top: .85rem;
+}
+
+.timing-wave-list p {
+  margin: 0;
 }
 
 .participant-row,

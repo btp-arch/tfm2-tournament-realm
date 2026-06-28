@@ -1166,8 +1166,11 @@ export type Database = {
       tournament_registrations: {
         Row: {
           created_at: string
+          excluded_at: string | null
           id: string
+          is_replacement: boolean
           manual_seed: number | null
+          replacement_claimed_at: string | null
           seed: number | null
           status: Database["public"]["Enums"]["registration_status"]
           tournament_id: string
@@ -1176,8 +1179,11 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          excluded_at?: string | null
           id?: string
+          is_replacement?: boolean
           manual_seed?: number | null
+          replacement_claimed_at?: string | null
           seed?: number | null
           status?: Database["public"]["Enums"]["registration_status"]
           tournament_id: string
@@ -1186,8 +1192,11 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          excluded_at?: string | null
           id?: string
+          is_replacement?: boolean
           manual_seed?: number | null
+          replacement_claimed_at?: string | null
           seed?: number | null
           status?: Database["public"]["Enums"]["registration_status"]
           tournament_id?: string
@@ -1604,6 +1613,27 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      apply_expired_check_in_window: {
+        Args: { target_tournament: string }
+        Returns: Json
+      }
+      apply_expired_replacement_window: {
+        Args: { target_tournament: string }
+        Returns: Json
+      }
+      apply_expired_round_outcomes: {
+        Args: {
+          target_group?: string
+          target_phase: string
+          target_round?: number
+          target_tournament: string
+        }
+        Returns: Json
+      }
+      apply_ready_match_openings: {
+        Args: { target_tournament: string }
+        Returns: Json
+      }
       assign_match_host: {
         Args: { selected_host: string; target_match: string }
         Returns: {
@@ -1748,6 +1778,28 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "matches"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      claim_replacement_spot: {
+        Args: { target_tournament: string }
+        Returns: {
+          created_at: string
+          excluded_at: string | null
+          id: string
+          is_replacement: boolean
+          manual_seed: number | null
+          replacement_claimed_at: string | null
+          seed: number | null
+          status: Database["public"]["Enums"]["registration_status"]
+          tournament_id: string
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "tournament_registrations"
           isOneToOne: true
           isSetofReturn: false
         }
@@ -1982,8 +2034,16 @@ export type Database = {
         }
         Returns: undefined
       }
+      is_active_registration_status: {
+        Args: { status: Database["public"]["Enums"]["registration_status"] }
+        Returns: boolean
+      }
       is_admin: { Args: never; Returns: boolean }
       is_match_participant: { Args: { match: string }; Returns: boolean }
+      is_match_resolved_for_timing: {
+        Args: { match_status: Database["public"]["Enums"]["match_status"] }
+        Returns: boolean
+      }
       is_organizer_for: { Args: { tournament: string }; Returns: boolean }
       is_public_tournament_status: {
         Args: { status: Database["public"]["Enums"]["tournament_status"] }
@@ -2362,8 +2422,11 @@ export type Database = {
         Args: { seed_value: number; target_registration: string }
         Returns: {
           created_at: string
+          excluded_at: string | null
           id: string
+          is_replacement: boolean
           manual_seed: number | null
+          replacement_claimed_at: string | null
           seed: number | null
           status: Database["public"]["Enums"]["registration_status"]
           tournament_id: string
@@ -2457,6 +2520,10 @@ export type Database = {
         | "withdrawn"
         | "accepted"
         | "rejected"
+        | "missed_check_in"
+        | "replaced"
+        | "active"
+        | "excluded"
       report_outcome:
         | "player_one_win"
         | "player_two_win"
@@ -2659,6 +2726,10 @@ export const Constants = {
         "withdrawn",
         "accepted",
         "rejected",
+        "missed_check_in",
+        "replaced",
+        "active",
+        "excluded",
       ],
       report_outcome: [
         "player_one_win",

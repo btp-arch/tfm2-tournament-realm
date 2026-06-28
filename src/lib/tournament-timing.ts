@@ -526,10 +526,10 @@ export function generateTournamentTimingRulesText(
       ? "Ready matches may open when both players are known, subject to staff control."
       : "Ready matches open when staff advances tournament operations.",
     settings.autoApplyTimerOutcomes
-      ? "Timer outcomes are configured for automatic handling when staff enables automation."
-      : "Expired timers do not automatically decide matches in this milestone; tournament staff reviews overdue matches and timing windows.",
+      ? "Timer outcomes are configured for staff-confirmed automation; expired timers still require organizer/admin action from Live Control."
+      : "Expired timers do not silently decide matches; tournament staff applies overdue window and match actions from Live Control.",
     "Tournament staff may pause, resume, extend, or force close timing windows when needed. While paused, timers do not expire.",
-    "If a match is unresolved when a timer expires, tournament staff may resolve it by forfeit, no contest, or staff review according to the event rules.",
+    "If a match timer expires and exactly one player checked into the match room, staff may award a forfeit win to the checked-in player. If neither player checked in, staff may mark the match no contest. If both players checked in without a result, or one player submitted a result without confirmation, staff review is required.",
     "Forfeits count for group standings but do not count toward public player records. BYEs and no-contests do not count toward public player records.",
     "Replacement players are unseeded.",
   ]

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
@@ -47,12 +47,19 @@ import {
 } from "@/lib/match-rooms";
 import {
   formatLiveControlBlockerReason,
+  formatTimerOutcomeSummary,
+  getCheckInExpirySummary,
   getBracketReadiness,
+  getBracketTimingRows,
   getDisputeSummary,
+  getExpiredTimingActions,
   getGroupDrawReadiness,
   getGroupStageProgress,
+  getGroupTimingMatrix,
   getManualSeedSummary,
   getMatchAttentionBuckets,
+  getReplacementWindowSummary,
+  getRoundExpirySummary,
   getPlayoffReadiness,
   getRegistrationCheckInSummary,
   getTournamentCompletionReadiness,
@@ -101,6 +108,7 @@ import {
   tournamentTierLabels,
   type MatchFormat,
   type MatchEvidenceRow,
+  type MatchCheckInRow,
   type MatchReportRow,
   type MatchRow,
   type TournamentCheckInRow,
@@ -131,6 +139,7 @@ type Participant = {
   registrationStatus: TournamentRegistrationRow["status"];
   registeredAt: string;
   checkIn: TournamentCheckInRow | null;
+  isReplacement: boolean;
   manualSeed: number | null;
 };
 
@@ -143,6 +152,7 @@ type SavingAction =
   | "reopen"
   | "close"
   | "check-in"
+  | "replacement-claim"
   | "manual-check-in"
   | "manual-uncheck"
   | "manual-seed"
@@ -154,6 +164,8 @@ type SavingAction =
   | "admin-force-check-in"
   | "admin-force-start"
   | "timing"
+  | "timer-expiry"
+  | "open-ready"
   | "reset"
   | "activate"
   | null;
@@ -192,8 +204,7 @@ function describeMatchSlot(
 function isActiveRegistration(registration: TournamentRegistrationRow | null) {
   return Boolean(
     registration &&
-      registration.status !== "withdrawn" &&
-      registration.status !== "rejected",
+      !["withdrawn", "rejected", "missed_check_in", "excluded"].includes(registration.status),
   );
 }
 
@@ -235,29 +246,70 @@ function orderParticipantsForGroupDraw(
   return orderParticipantsForSeeding(participants, drawMethod);
 }
 
+type GroupRoundRobinPairing = {
+  playerOne: TournamentGroupMemberRow;
+  playerTwo: TournamentGroupMemberRow;
+  roundNumber: number;
+};
+
 function createRoundRobinPairings(members: TournamentGroupMemberRow[]) {
   const orderedMembers = members
     .filter((member) => !isGroupBye(member) && member.user_id)
     .slice()
     .sort((first, second) => first.seed - second.seed);
-  const pairings: { playerOne: TournamentGroupMemberRow; playerTwo: TournamentGroupMemberRow }[] = [];
 
-  for (let firstIndex = 0; firstIndex < orderedMembers.length; firstIndex += 1) {
-    for (let secondIndex = firstIndex + 1; secondIndex < orderedMembers.length; secondIndex += 1) {
-      const first = orderedMembers[firstIndex];
-      const second = orderedMembers[secondIndex];
-
-      if (first && second) {
-        pairings.push({ playerOne: first, playerTwo: second });
-      }
-    }
+  if (orderedMembers.length < 2) {
+    return [];
   }
 
-  return pairings;
+  const rotation: (TournamentGroupMemberRow | null)[] =
+    orderedMembers.length % 2 === 0 ? orderedMembers : [...orderedMembers, null];
+  const rounds: GroupRoundRobinPairing[] = [];
+  const playerCount = rotation.length;
+
+  for (let roundIndex = 0; roundIndex < playerCount - 1; roundIndex += 1) {
+    for (let pairIndex = 0; pairIndex < playerCount / 2; pairIndex += 1) {
+      const first = rotation[pairIndex];
+      const second = rotation[playerCount - 1 - pairIndex];
+
+      if (first && second) {
+        rounds.push({
+          playerOne: roundIndex % 2 === 0 ? first : second,
+          playerTwo: roundIndex % 2 === 0 ? second : first,
+          roundNumber: roundIndex + 1,
+        });
+      }
+    }
+
+    const fixed = rotation[0] ?? null;
+    const rotating = rotation.slice(1);
+    const last = rotating.pop() ?? null;
+    rotation.splice(0, rotation.length, fixed, last, ...rotating);
+  }
+
+  return rounds;
 }
 
 function isEligibleParticipant(participant: Participant) {
-  return participant.registrationStatus !== "withdrawn" && participant.registrationStatus !== "rejected";
+  return !["withdrawn", "rejected", "missed_check_in", "excluded"].includes(
+    participant.registrationStatus,
+  );
+}
+
+function formatRegistrationStatus(status: TournamentRegistrationRow["status"]) {
+  const labels: Record<TournamentRegistrationRow["status"], string> = {
+    accepted: "Accepted",
+    active: "Active",
+    checked_in: "Checked In",
+    excluded: "Excluded",
+    missed_check_in: "Missed Check-In",
+    pending: "Registered",
+    rejected: "Rejected",
+    replaced: "Replacement",
+    withdrawn: "Withdrawn",
+  };
+
+  return labels[status];
 }
 
 function getTournamentStatusGuidance(
@@ -344,6 +396,24 @@ function getMatchStatusTone(match: MatchRow): "danger" | "gold" | "muted" | unde
   }
 
   return "muted";
+}
+
+function formatTimingCellState(state: string) {
+  const labels: Record<string, string> = {
+    active: "Timer active",
+    blocked: "Review",
+    complete: "Complete",
+    empty: "No match",
+    expired: "Expired",
+    open: "Open, timer pending",
+    waiting: "Waiting",
+  };
+
+  return labels[state] ?? state;
+}
+
+function getTimingCellClassName(state: string) {
+  return ["timing-cell", `timing-cell-${state}`].join(" ");
 }
 
 function getRoundColumnStyle(roundIndex: number): CSSProperties {
@@ -623,10 +693,18 @@ function LiveMetricCard({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function TimingDeadline({ deadline, paused }: { deadline: Date | null; paused: boolean }) {
+function TimingDeadline({
+  deadline,
+  now,
+  paused,
+}: {
+  deadline: Date | null;
+  now: Date;
+  paused: boolean;
+}) {
   return (
     <>
-      <strong>{getCountdownLabel(deadline, paused)}</strong>
+      <strong>{getCountdownLabel(deadline, paused, now)}</strong>
       <span className="muted">{deadline ? formatDateTime(deadline.toISOString()) : "No deadline set"}</span>
     </>
   );
@@ -685,6 +763,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const [stages, setStages] = useState<TournamentStageRow[]>([]);
   const [rounds, setRounds] = useState<TournamentRoundRow[]>([]);
   const [matches, setMatches] = useState<MatchRow[]>([]);
+  const [matchCheckIns, setMatchCheckIns] = useState<MatchCheckInRow[]>([]);
   const [matchReports, setMatchReports] = useState<MatchReportRow[]>([]);
   const [matchEvidence, setMatchEvidence] = useState<MatchEvidenceRow[]>([]);
   const [disputes, setDisputes] = useState<DisputeRow[]>([]);
@@ -703,6 +782,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [clockNow, setClockNow] = useState(() => new Date());
   const [activeTab, setActiveTab] = useState<TournamentTabKey>("overview");
   const [historyGroupId, setHistoryGroupId] = useState<string | null>(null);
 
@@ -734,6 +814,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         setUser(currentUser);
         setRoles(loadedRoles);
         setTournament(null);
+        setMatchCheckIns([]);
         setMatchReports([]);
         setMatchEvidence([]);
         setDisputes([]);
@@ -841,11 +922,17 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       );
       const matchIds = matchesResult.data.map((match) => match.id);
       const [
+        matchCheckInsResult,
         matchReportsResult,
         matchEvidenceResult,
         disputesResult,
       ] = canLoadStaffReviewData && matchIds.length > 0
         ? await Promise.all([
+            supabase
+              .from("match_check_ins")
+              .select("*")
+              .in("match_id", matchIds)
+              .order("checked_in_at", { ascending: true }),
             supabase
               .from("match_reports")
               .select("*")
@@ -866,12 +953,15 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             { data: [], error: null },
             { data: [], error: null },
             { data: [], error: null },
+            { data: [], error: null },
           ];
 
+      if (matchCheckInsResult.error) throw matchCheckInsResult.error;
       if (matchReportsResult.error) throw matchReportsResult.error;
       if (matchEvidenceResult.error) throw matchEvidenceResult.error;
       if (disputesResult.error) throw disputesResult.error;
 
+      const loadedMatchCheckIns = (matchCheckInsResult.data ?? []) as MatchCheckInRow[];
       const loadedMatchReports = (matchReportsResult.data ?? []) as MatchReportRow[];
       const loadedMatchEvidence = (matchEvidenceResult.data ?? []) as MatchEvidenceRow[];
       const loadedDisputes = (disputesResult.data ?? []) as DisputeRow[];
@@ -942,6 +1032,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         registrationStatus: row.status,
         registeredAt: row.created_at,
         checkIn: checkIns.find((checkIn) => checkIn.user_id === row.user_id) ?? null,
+        isReplacement: row.is_replacement,
         manualSeed: row.manual_seed,
       }));
 
@@ -958,6 +1049,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       setStages(stagesResult.data);
       setRounds(roundsResult.data);
       setMatches(matchesResult.data);
+      setMatchCheckIns(loadedMatchCheckIns);
       setMatchReports(loadedMatchReports);
       setMatchEvidence(loadedMatchEvidence);
       setDisputes(loadedDisputes);
@@ -1003,6 +1095,16 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     };
   }, [loadTournament]);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setClockNow(new Date());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   const canManageTournament = useMemo(() => {
     if (!user || !tournament) {
       return false;
@@ -1030,7 +1132,13 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const isGroupStageTournament = tournament?.tournament_format === "group_stage_playoff";
   const timingSettings = tournament ? normalizeTournamentTimingSettings(tournament) : null;
   const timingState = tournament
-    ? getCurrentTournamentTimingState(tournament, Boolean(isGroupStageTournament))
+    ? getCurrentTournamentTimingState(tournament, Boolean(isGroupStageTournament), clockNow)
+    : null;
+  const checkInExpirySummary = tournament
+    ? getCheckInExpirySummary(tournament, participants, clockNow)
+    : null;
+  const replacementWindowSummary = tournament
+    ? getReplacementWindowSummary(tournament, participants, clockNow)
     : null;
   const generatedTimingRules = tournament
     ? generateTournamentTimingRulesText(tournament)
@@ -1063,6 +1171,14 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const playoffMatches = useMemo(
     () => (playoffStage ? matches.filter((match) => match.stage_id === playoffStage.id) : []),
     [matches, playoffStage],
+  );
+  const groupStageRounds = useMemo(
+    () => (groupStage ? rounds.filter((round) => round.stage_id === groupStage.id) : []),
+    [groupStage, rounds],
+  );
+  const playoffStageRounds = useMemo(
+    () => (playoffStage ? rounds.filter((round) => round.stage_id === playoffStage.id) : []),
+    [playoffStage, rounds],
   );
 
   const bracketWarning = getBracketSetupWarning(
@@ -1123,7 +1239,14 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     user &&
       tournament?.status === "check_in" &&
       isActiveRegistration(registration) &&
-      !ownCheckIn,
+      !ownCheckIn &&
+      !checkInExpirySummary?.expired,
+  );
+  const canClaimReplacement = Boolean(
+    user &&
+      tournament?.status === "check_in" &&
+      replacementWindowSummary?.active &&
+      !isActiveRegistration(registration),
   );
   const isFull = tournament ? isTournamentFull(tournament, activeRegistrationCount) : false;
   const deleteBlockedReason =
@@ -1213,6 +1336,34 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const livePlayoffReadiness = tournament
     ? getPlayoffReadiness(groupsWithMembers, matches, tournament, hasPlayoffBracket)
     : null;
+  const liveGroupTimingMatrix = tournament
+    ? getGroupTimingMatrix({
+        groups: groupsWithMembers,
+        matches: groupStageMatches,
+        rounds: groupStageRounds,
+        tournament,
+      })
+    : null;
+  const liveBracketTimingRows = tournament
+    ? getBracketTimingRows({
+        matches: playoffMatches.length > 0 ? playoffMatches : matches.filter((match) => !match.group_id),
+        rounds: playoffStageRounds.length > 0 ? playoffStageRounds : rounds.filter((round) => {
+          const stage = stages.find((item) => item.id === round.stage_id);
+          return stage?.bracket_type === "single_elimination";
+        }),
+        tournament,
+      })
+    : [];
+  const liveRoundExpirySummary = tournament
+    ? getRoundExpirySummary({
+        checkIns: matchCheckIns,
+        groups: groupsWithMembers,
+        matches,
+        phase: isGroupStageTournament && !hasPlayoffBracket ? "group" : "bracket",
+        reports: matchReports,
+        tournament,
+      })
+    : null;
   const liveSummary =
     tournament && liveRegistrationSummary
       ? getTournamentLiveSummary({
@@ -1226,6 +1377,18 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           tournament,
         })
       : null;
+  const expiredTimingActions = tournament
+    ? getExpiredTimingActions({
+        bracketReadiness: liveBracketReadiness,
+        canManageTournament,
+        checkInSummary: checkInExpirySummary,
+        groupDrawReadiness: liveGroupDrawReadiness,
+        hasGeneratedBracket,
+        replacementSummary: replacementWindowSummary,
+        roundSummary: liveRoundExpirySummary,
+        tournament,
+      })
+    : [];
   const liveNextAction =
     tournament &&
     liveRegistrationSummary &&
@@ -1345,6 +1508,36 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     } catch (caughtError) {
       logError("Tournament check-in failed.", caughtError);
       setError(formatError(caughtError, "Unable to check in for this tournament."));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  async function claimReplacementSpot() {
+    if (!user || !tournament || !canClaimReplacement) {
+      return;
+    }
+
+    setSavingAction("replacement-claim");
+    setNotice(null);
+    setError(null);
+
+    try {
+      await ensureProfile(supabase, user);
+
+      const { error: claimError } = await supabase.rpc("claim_replacement_spot", {
+        target_tournament: tournament.id,
+      });
+
+      if (claimError) {
+        throw claimError;
+      }
+
+      setNotice("Replacement spot claimed and checked in.");
+      await loadTournament();
+    } catch (caughtError) {
+      logError("Replacement claim failed.", caughtError);
+      setError(formatError(caughtError, "Unable to claim a replacement spot."));
     } finally {
       setSavingAction(null);
     }
@@ -1493,6 +1686,129 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       forceCloseTournamentWindow(timingWindow),
       `${getTimingWindowLabel(timingWindow)} marked expired.`,
     );
+  }
+
+  async function applyExpiredTimingAction(actionKind: (typeof expiredTimingActions)[number]["kind"]) {
+    if (!tournament || !canManageTournament) {
+      return;
+    }
+
+    if (actionKind === "generate_group_draw") {
+      await generateGroupDraw();
+      return;
+    }
+
+    if (actionKind === "generate_bracket") {
+      await generateBracket();
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Apply this expired timer action now? This may update registration statuses or unresolved match outcomes according to the timing rules.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSavingAction("timer-expiry");
+    setNotice(null);
+    setError(null);
+
+    try {
+      if (actionKind === "apply_check_in_expiry") {
+        const { error: rpcError } = await supabase.rpc("apply_expired_check_in_window", {
+          target_tournament: tournament.id,
+        });
+
+        if (rpcError) {
+          throw rpcError;
+        }
+
+        setNotice("Expired check-in window applied.");
+      } else if (actionKind === "apply_replacement_expiry") {
+        const { error: rpcError } = await supabase.rpc("apply_expired_replacement_window", {
+          target_tournament: tournament.id,
+        });
+
+        if (rpcError) {
+          throw rpcError;
+        }
+
+        setNotice("Expired replacement window applied.");
+      } else if (actionKind === "apply_group_round_expiry") {
+        const payload: {
+          target_group?: string;
+          target_phase: "group" | "bracket";
+          target_round?: number;
+          target_tournament: string;
+        } = {
+          target_phase: "group",
+          target_tournament: tournament.id,
+        };
+        const { error: rpcError } = await supabase.rpc("apply_expired_round_outcomes", payload);
+
+        if (rpcError) {
+          throw rpcError;
+        }
+
+        setNotice("Expired group round outcomes applied.");
+      } else if (actionKind === "apply_bracket_round_expiry") {
+        const payload: {
+          target_group?: string;
+          target_phase: "group" | "bracket";
+          target_round?: number;
+          target_tournament: string;
+        } = {
+          target_phase: "bracket",
+          target_tournament: tournament.id,
+        };
+        const { error: rpcError } = await supabase.rpc("apply_expired_round_outcomes", payload);
+
+        if (rpcError) {
+          throw rpcError;
+        }
+
+        setNotice("Expired bracket round outcomes applied.");
+      }
+
+      await loadTournament();
+      router.refresh();
+    } catch (caughtError) {
+      logError("Expired timing action failed.", caughtError);
+      setError(formatError(caughtError, "Unable to apply expired timing action."));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  async function openReadyMatchesAndTimers() {
+    if (!tournament || !canManageTournament) {
+      return;
+    }
+
+    setSavingAction("open-ready");
+    setNotice(null);
+    setError(null);
+
+    try {
+      const { error: rpcError } = await supabase.rpc("apply_ready_match_openings", {
+        target_tournament: tournament.id,
+      });
+
+      if (rpcError) {
+        throw rpcError;
+      }
+
+      setNotice("Ready matches opened and round timers synced.");
+      await loadTournament();
+      router.refresh();
+    } catch (caughtError) {
+      logError("Ready match opening failed.", caughtError);
+      setError(formatError(caughtError, "Unable to open ready matches."));
+    } finally {
+      setSavingAction(null);
+    }
   }
 
   async function manualCheckIn(participant: Participant) {
@@ -1999,31 +2315,6 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       }
 
       createdStageId = stage.id;
-      const groupTimerStartedAt = new Date();
-      const groupRoundDeadline = new Date(
-        groupTimerStartedAt.getTime() +
-          getRoundDurationForFormat(tournament.group_stage_format ?? "bo1", "group", tournament) *
-            60_000,
-      ).toISOString();
-
-      const { data: createdRound, error: roundError } = await supabase
-        .from("tournament_rounds")
-        .insert({
-          deadline_at: groupRoundDeadline,
-          tournament_id: tournament.id,
-          stage_id: stage.id,
-          round_number: 1,
-          name: "Group Round Robin",
-          match_format: tournament.group_stage_format,
-          timer_started_at: groupTimerStartedAt.toISOString(),
-          timing_state: "active",
-        })
-        .select()
-        .single();
-
-      if (roundError) {
-        throw roundError;
-      }
 
       const { data: createdGroups, error: groupsError } = await supabase
         .from("tournament_groups")
@@ -2069,18 +2360,60 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         throw membersError;
       }
 
-      let matchNumber = 1;
-      const matchInserts = createdGroups.flatMap((group) => {
+      const groupPairings = createdGroups.flatMap((group) => {
         const members = createdMembers.filter((member) => member.group_id === group.id);
 
         return createRoundRobinPairings(members).map((pairing, index) => ({
+          group,
+          pairing,
+          position: index + 1,
+        }));
+      });
+      const maxGroupRoundNumber = groupPairings.reduce(
+        (maxRound, item) => Math.max(maxRound, item.pairing.roundNumber),
+        0,
+      );
+      const groupTimerStartedAt = new Date();
+      const groupRoundDeadline = new Date(
+        groupTimerStartedAt.getTime() +
+          getRoundDurationForFormat(tournament.group_stage_format ?? "bo1", "group", tournament) *
+            60_000,
+      ).toISOString();
+      const { data: createdRounds, error: roundError } =
+        maxGroupRoundNumber > 0
+          ? await supabase
+              .from("tournament_rounds")
+              .insert(
+                Array.from({ length: maxGroupRoundNumber }, (_, index) => ({
+                  deadline_at: index === 0 ? groupRoundDeadline : null,
+                  tournament_id: tournament.id,
+                  stage_id: stage.id,
+                  round_number: index + 1,
+                  name: `Group Round ${index + 1}`,
+                  match_format: tournament.group_stage_format!,
+                  timer_started_at: index === 0 ? groupTimerStartedAt.toISOString() : null,
+                  timing_state: index === 0 ? "active" : "idle",
+                })),
+              )
+              .select()
+          : { data: [], error: null };
+
+      if (roundError) {
+        throw roundError;
+      }
+
+      const groupRoundByNumber = new Map(
+        (createdRounds ?? []).map((round) => [round.round_number, round]),
+      );
+      let matchNumber = 1;
+      const matchInserts = groupPairings.map(({ group, pairing, position }) => ({
           tournament_id: tournament.id,
           stage_id: stage.id,
-          round_id: createdRound.id,
+          round_id: groupRoundByNumber.get(pairing.roundNumber)?.id ?? null,
           group_id: group.id,
-          round_number: 1,
+          round_number: pairing.roundNumber,
           match_number: matchNumber++,
-          bracket_position: index + 1,
+          bracket_position: position,
           player_one_id: pairing.playerOne.user_id!,
           player_two_id: pairing.playerTwo.user_id!,
           player_one_seed: pairing.playerOne.seed,
@@ -2088,10 +2421,9 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           player_one_slot: pairing.playerOne.draw_position,
           player_two_slot: pairing.playerTwo.draw_position,
           format: tournament.group_stage_format!,
-          status: "assigned" as const,
+          status: pairing.roundNumber === 1 ? "assigned" as const : "pending" as const,
           result_type: "played" as const,
         }));
-      });
 
       if (matchInserts.length > 0) {
         const { error: matchesError } = await supabase.from("matches").insert(matchInserts);
@@ -2279,7 +2611,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       return;
     }
 
-    if (groupStageMatches.some((match) => match.status !== "assigned")) {
+    if (groupStageMatches.some((match) => !["assigned", "pending"].includes(match.status))) {
       setError("Group draw can only be reset before group matches start.");
       return;
     }
@@ -2624,6 +2956,8 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                 <p className="notice">You have an active match room.</p>
               ) : canCheckIn ? (
                 <p className="notice">Tournament check-in is open for you.</p>
+              ) : canClaimReplacement ? (
+                <p className="notice">Replacement spots are open for this tournament.</p>
               ) : canRegister ? (
                 <p className="notice">Registration is open for this free-entry tournament.</p>
               ) : registration?.status && registration.status !== "withdrawn" ? (
@@ -2649,6 +2983,15 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                   onClick={checkInForTournament}
                 >
                   {savingAction === "check-in" ? "Checking in..." : "Check In"}
+                </button>
+              ) : canClaimReplacement ? (
+                <button
+                  className="button"
+                  disabled={savingAction === "replacement-claim"}
+                  type="button"
+                  onClick={claimReplacementSpot}
+                >
+                  {savingAction === "replacement-claim" ? "Claiming..." : "Claim Replacement Spot"}
                 </button>
               ) : canRegister ? (
                 <button
@@ -2750,7 +3093,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                 {timingState.label}
               </p>
               <p className="countdown-line">
-                <TimingDeadline deadline={timingState.deadline} paused={timingState.isPaused} />
+                <TimingDeadline deadline={timingState.deadline} now={clockNow} paused={timingState.isPaused} />
               </p>
               <p className="muted">{timingState.nextAction}</p>
               <p className="muted">
@@ -2858,7 +3201,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                 <LiveMetricCard label="Current Window" value={timingState.label} />
                 <LiveMetricCard
                   label="Deadline"
-                  value={<TimingDeadline deadline={timingState.deadline} paused={timingState.isPaused} />}
+                  value={<TimingDeadline deadline={timingState.deadline} now={clockNow} paused={timingState.isPaused} />}
                 />
                 <LiveMetricCard label="Check-In" value={`${timingSettings.checkInWindowMinutes}m`} />
                 <LiveMetricCard
@@ -2879,6 +3222,141 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                 <LiveMetricCard label="Bracket BO3" value={`${timingSettings.bracketBo3RoundMinutes}m`} />
                 <LiveMetricCard label="Bracket BO5" value={`${timingSettings.bracketBo5RoundMinutes}m`} />
               </div>
+
+              <div className="management-actions">
+                <div>
+                  <h3>Expired Actions</h3>
+                  <p className="muted">
+                    {tournament.timers_paused_at
+                      ? "Timers are paused. Resume before applying expired timing actions."
+                      : expiredTimingActions.length > 0
+                        ? "Review the summary before applying any expired timing action."
+                        : "No expired timing action is currently available."}
+                  </p>
+                  {checkInExpirySummary ? <p className="muted">{checkInExpirySummary.summary}</p> : null}
+                  {replacementWindowSummary ? <p className="muted">{replacementWindowSummary.summary}</p> : null}
+                  {liveRoundExpirySummary?.expired ? (
+                    <p className="muted">
+                      {liveRoundExpirySummary.phase === "group" ? "Group" : "Bracket"} round expired:{" "}
+                      {liveRoundExpirySummary.unresolvedCount} unresolved,{" "}
+                      {liveRoundExpirySummary.forfeitCount} FF,{" "}
+                      {liveRoundExpirySummary.noContestCount} no contest,{" "}
+                      {liveRoundExpirySummary.needsReviewCount} review.
+                    </p>
+                  ) : null}
+                </div>
+                {expiredTimingActions.length > 0 ? (
+                  <div className="role-actions">
+                    {expiredTimingActions.map((action) => (
+                      <button
+                        className={action.enabled ? "button" : "button secondary-button"}
+                        disabled={!action.enabled || savingAction === "timer-expiry" || savingAction === "generate" || savingAction === "generate-groups"}
+                        key={action.kind}
+                        title={action.blocker ?? action.detail}
+                        type="button"
+                        onClick={() => applyExpiredTimingAction(action.kind)}
+                      >
+                        {savingAction === "timer-expiry" ? "Applying..." : action.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              {expiredTimingActions.length > 0 ? (
+                <div className="stack">
+                  {expiredTimingActions.map((action) => (
+                    <p className={action.blocker ? "error" : "muted"} key={`${action.kind}-detail`}>
+                      <strong>{action.label}:</strong> {action.blocker ?? action.detail}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="management-actions">
+                <div>
+                  <h3>Round Timing Map</h3>
+                  <p className="muted">
+                    Group matches can open ahead by group. Group round timers start only when every group reaches that round.
+                  </p>
+                </div>
+                <div className="role-actions">
+                  <button
+                    className="button secondary-button"
+                    disabled={!canManageTournament || savingAction === "open-ready"}
+                    type="button"
+                    onClick={openReadyMatchesAndTimers}
+                  >
+                    {savingAction === "open-ready" ? "Syncing..." : "Open Ready Matches"}
+                  </button>
+                </div>
+              </div>
+
+              {isGroupStageTournament && liveGroupTimingMatrix && liveGroupTimingMatrix.roundNumbers.length > 0 ? (
+                <div className="timing-map" aria-label="Group round timing map">
+                  <div
+                    className="timing-grid"
+                    style={{ "--timing-round-columns": liveGroupTimingMatrix.roundNumbers.length } as CSSProperties}
+                  >
+                    <div className="timing-heading">Group</div>
+                    {liveGroupTimingMatrix.roundNumbers.map((roundNumber) => (
+                      <div className="timing-heading" key={`round-${roundNumber}`}>
+                        R{roundNumber}
+                      </div>
+                    ))}
+                    {liveGroupTimingMatrix.groups.map((group) => (
+                      <Fragment key={group.id}>
+                        <div className="timing-group-name">{group.name}</div>
+                        {liveGroupTimingMatrix.roundNumbers.map((roundNumber) => {
+                          const cell = liveGroupTimingMatrix.cells.find(
+                            (item) => item.groupId === group.id && item.roundNumber === roundNumber,
+                          );
+
+                          return (
+                            <div
+                              className={getTimingCellClassName(cell?.state ?? "empty")}
+                              key={`${group.id}-${roundNumber}`}
+                              title={cell?.detail}
+                            >
+                              <strong>{formatTimingCellState(cell?.state ?? "empty")}</strong>
+                              <span>{cell ? `${cell.resolvedCount}/${cell.matchCount}` : "0/0"}</span>
+                              {cell?.deadline ? <span>{getCountdownLabel(cell.deadline, Boolean(tournament.timers_paused_at), clockNow)}</span> : null}
+                            </div>
+                          );
+                        })}
+                      </Fragment>
+                    ))}
+                  </div>
+                  <div className="timing-wave-list">
+                    {liveGroupTimingMatrix.waves.map((wave) => (
+                      <p className={wave.expired ? "error" : "muted"} key={wave.roundNumber}>
+                        <strong>Round {wave.roundNumber} timer:</strong>{" "}
+                        {wave.complete
+                          ? "Complete"
+                          : wave.started
+                            ? wave.deadline
+                              ? getCountdownLabel(wave.deadline, Boolean(tournament.timers_paused_at), clockNow)
+                              : "Active"
+                            : wave.waitingOnGroups.length > 0
+                              ? `Not started, waiting for ${wave.waitingOnGroups.join(", ")}`
+                              : "Ready to start when matches open"}
+                        {wave.blockedGroups.length > 0 ? `; review needed in ${wave.blockedGroups.join(", ")}` : ""}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {liveBracketTimingRows.length > 0 ? (
+                <div className="timing-wave-list">
+                  {liveBracketTimingRows.map((row) => (
+                    <p className={row.state === "expired" || row.state === "blocked" ? "error" : "muted"} key={row.roundNumber}>
+                      <strong>{row.roundName}:</strong> {formatTimingCellState(row.state)} · {row.detail}
+                      {row.deadline ? ` · ${getCountdownLabel(row.deadline, Boolean(tournament.timers_paused_at), clockNow)}` : ""}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
 
               <div className="management-actions">
                 <div>
@@ -2941,7 +3419,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               ) : null}
 
               <p className="muted">
-                Auto-apply timer outcomes is {timingSettings.autoApplyTimerOutcomes ? "configured on" : "off"}; this milestone does not automatically forfeit or no-contest overdue matches.
+                Auto-apply timer outcomes is {timingSettings.autoApplyTimerOutcomes ? "configured on" : "off"}; expired timers require organizer/admin confirmation in Live Control.
               </p>
             </section>
           ) : null}
@@ -3121,6 +3599,26 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                 />
               </details>
             ))}
+            {liveRoundExpirySummary?.expired && liveRoundExpirySummary.candidates.length > 0 ? (
+              <div className="stack">
+                <h3>Expired Round Outcome Candidates</h3>
+                {liveRoundExpirySummary.candidates.slice(0, 8).map((candidate) => {
+                  const match = matches.find((item) => item.id === candidate.matchId);
+                  const players = match
+                    ? `${getProfileName(profileMap, match.player_one_id) ?? "TBD"} vs ${getProfileName(profileMap, match.player_two_id) ?? "TBD"}`
+                    : "Match";
+
+                  return (
+                    <p className="muted" key={candidate.matchId}>
+                      <strong>{players}:</strong> {formatTimerOutcomeSummary(candidate)}. {candidate.detail}
+                    </p>
+                  );
+                })}
+                {liveRoundExpirySummary.candidates.length > 8 ? (
+                  <p className="muted">+{liveRoundExpirySummary.candidates.length - 8} more overdue match candidates.</p>
+                ) : null}
+              </div>
+            ) : null}
           </section>
 
           {isGroupStageTournament ? (
@@ -3298,6 +3796,18 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             >
               {savingAction === "check-in" ? "Checking in..." : "Check In"}
             </button>
+          ) : canClaimReplacement ? (
+            <div className="stack">
+              <p className="notice">{replacementWindowSummary?.summary}</p>
+              <button
+                className="button"
+                disabled={savingAction === "replacement-claim"}
+                type="button"
+                onClick={claimReplacementSpot}
+              >
+                {savingAction === "replacement-claim" ? "Claiming..." : "Claim Replacement Spot"}
+              </button>
+            </div>
           ) : !isActiveRegistration(registration) ? (
             <p className="muted">You must be registered for this tournament before you can check in.</p>
           ) : (
@@ -3325,8 +3835,11 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                     <p className="muted">
                       {participant.checkIn
                         ? `Checked in ${formatDateTime(participant.checkIn.checked_in_at)}`
-                        : "Registered"}
+                        : formatRegistrationStatus(participant.registrationStatus)}
                     </p>
+                    {participant.isReplacement ? (
+                      <p className="muted">Replacement entry</p>
+                    ) : null}
                     {participant.manualSeed ? (
                       <p className="muted">Manual tournament seed {participant.manualSeed}</p>
                     ) : null}
@@ -3336,7 +3849,11 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                       <span className="badge status-badge-gold">Seed {participant.manualSeed}</span>
                     ) : null}
                     <span className="badge">
-                      {participant.checkIn ? "Checked In" : "Registered"}
+                      {participant.isReplacement
+                        ? "Replacement"
+                        : participant.checkIn
+                          ? "Checked In"
+                          : formatRegistrationStatus(participant.registrationStatus)}
                     </span>
                     {canManageTournament ? (
                       <label className="compact-control" htmlFor={`manual-seed-${participant.registrationId}`}>
