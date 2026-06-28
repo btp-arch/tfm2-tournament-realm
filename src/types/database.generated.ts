@@ -1427,6 +1427,7 @@ export type Database = {
           current_group_round_deadline: string | null
           current_replacement_deadline: string | null
           description: string | null
+          draw_seeding_method: Database["public"]["Enums"]["tournament_seeding_method"]
           exclude_from_stats: boolean
           external_community_url: string | null
           final_match_format: Database["public"]["Enums"]["match_format"]
@@ -1492,6 +1493,7 @@ export type Database = {
           current_group_round_deadline?: string | null
           current_replacement_deadline?: string | null
           description?: string | null
+          draw_seeding_method?: Database["public"]["Enums"]["tournament_seeding_method"]
           exclude_from_stats?: boolean
           external_community_url?: string | null
           final_match_format?: Database["public"]["Enums"]["match_format"]
@@ -1559,6 +1561,7 @@ export type Database = {
           current_group_round_deadline?: string | null
           current_replacement_deadline?: string | null
           description?: string | null
+          draw_seeding_method?: Database["public"]["Enums"]["tournament_seeding_method"]
           exclude_from_stats?: boolean
           external_community_url?: string | null
           final_match_format?: Database["public"]["Enums"]["match_format"]

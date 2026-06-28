@@ -1181,7 +1181,10 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         setRoundFormats(getTournamentRoundFormats(loadedTournament, firstStage.bracket_size));
       } else if (loadedTournament.max_players && isBracketSize(loadedTournament.max_players)) {
         setSelectedBracketSize(loadedTournament.max_players);
+        setSelectedSeedingMethod(loadedTournament.draw_seeding_method);
         setRoundFormats(getTournamentRoundFormats(loadedTournament, loadedTournament.max_players));
+      } else {
+        setSelectedSeedingMethod(loadedTournament.draw_seeding_method);
       }
     } catch (caughtError) {
       logError("Tournament detail load failed.", caughtError);
@@ -2358,6 +2361,41 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       setError(formatError(caughtError, "Unable to update manual seed."));
     } finally {
       setSavingAction(null);
+    }
+  }
+
+  async function updateSelectedSeedingMethod(method: SeedingMethod) {
+    setSelectedSeedingMethod(method);
+
+    if (!tournament || !canManageTournament || hasGeneratedBracket) {
+      return;
+    }
+
+    setError(null);
+
+    try {
+      const updatedAt = new Date().toISOString();
+      const { error: updateError } = await supabase
+        .from("tournaments")
+        .update({
+          draw_seeding_method: method,
+          updated_at: updatedAt,
+        })
+        .eq("id", tournament.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setTournament({
+        ...tournament,
+        draw_seeding_method: method,
+        updated_at: updatedAt,
+      });
+    } catch (caughtError) {
+      logError("Draw method update failed.", caughtError);
+      setSelectedSeedingMethod(tournament.draw_seeding_method);
+      setError(formatError(caughtError, "Unable to save draw method."));
     }
   }
 
@@ -5043,7 +5081,9 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                   id="seeding-method"
                   disabled={hasGeneratedBracket}
                   value={selectedSeedingMethod}
-                  onChange={(event) => setSelectedSeedingMethod(event.target.value as SeedingMethod)}
+                  onChange={(event) => {
+                    void updateSelectedSeedingMethod(event.target.value as SeedingMethod);
+                  }}
                 >
                   {seedingMethods.map((method) => (
                     <option key={method} value={method}>
@@ -5120,7 +5160,9 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                       id="group-draw-method"
                       disabled={hasGroupDraw}
                       value={selectedSeedingMethod}
-                      onChange={(event) => setSelectedSeedingMethod(event.target.value as SeedingMethod)}
+                      onChange={(event) => {
+                        void updateSelectedSeedingMethod(event.target.value as SeedingMethod);
+                      }}
                     >
                       {seedingMethods.map((method) => (
                         <option key={method} value={method}>

@@ -34,7 +34,7 @@ export type TournamentAutomationEventRow = {
   details: Record<string, unknown>;
   event_type: string;
   id: string;
-  source: "live_control" | "page_poll" | "manual_button";
+  source: "live_control" | "page_poll" | "manual_button" | "scheduled_job";
   tournament_id: string;
 };
 
