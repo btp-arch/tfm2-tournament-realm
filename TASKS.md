@@ -1,59 +1,32 @@
-# Next Milestone Checklist: Group Stage Hardening and Organizer Live Controls
+# Next Milestone Checklist: Pre-Live Smoke Testing and Public Help Pages
 
-## Group Stage Hardening
+## Pre-Live Smoke Testing
 
-- [ ] Add focused tests for group BYE generation, group reset safety, group match generation counts, playoff BYE placement, and playoff bracket generation.
-- [ ] Add focused tests for derived tournament capacity from single-elimination bracket size and group size/count.
-- [ ] Add focused tests for pre-semifinal/semifinal/final round-format defaults in generated brackets.
-- [ ] Add database-level RPC coverage for group draw and playoff generation if staff action auditing needs to move fully server-side.
-- [ ] Add safeguards for deleting or editing group-stage settings after a draw exists.
-- [ ] Add clearer admin recovery tools for accidental FF or qualifier override mistakes.
-- [ ] Confirm group-stage notifications behave well for large 64-player events.
-- [ ] Add test coverage for same-group first-round rematch avoidance across top 2/top 3/top 4 formats.
+- [ ] Run full browser smoke tests for single-elimination tournaments from registration through completion.
+- [ ] Run full browser smoke tests for group-stage playoff tournaments, including underfilled groups, BYE/off-slots, qualifier ties, and playoff generation.
+- [ ] Verify automation defaults to Manual and never Automatic unless organizer/admin explicitly enables it.
+- [ ] Verify Automatic mode respects paused timers, paused automation, disabled toggles, disputes, existing reports, and repeated page polling.
+- [ ] Verify random timeout advancement is labeled, advances only tournament progression, and remains excluded from public player/game records.
+- [ ] Verify normal players cannot edit automation policy, run automation, see private evidence, or access Live Control.
+- [ ] Confirm repeated Run Automation Now calls do not duplicate groups, brackets, rounds, matches, notifications, or automation events beyond the attempted run log.
 
-## Group Tiebreakers
+## Public Help Pages
 
-- [ ] Expand head-to-head handling beyond simple two-player ties.
-- [ ] Add an explicit tiebreaker review queue or staff badge when a cutoff tie blocks playoff generation.
-- [ ] Add optional tiebreaker match support if manual overrides are not enough.
-- [ ] Keep standings computed from match source data, not manually edited totals.
-- [ ] Document final tournament policy for multi-way ties before official/championship use.
+- [ ] Add concise public help copy for tournament registration, check-in, replacement slots, match rooms, result reporting, and disputes.
+- [ ] Add player-facing help for automation modes and timeout policies without exposing organizer-only control details.
+- [ ] Add record-counting help that clearly excludes FF, BYE, no-contest, random advancement, unresolved disputes, and test/stat-excluded tournaments.
+- [ ] Add organizer-facing help for Live Control, timer pause/resume/extend, and emergency Manual mode.
 
-## Group UI Polish
+## Operational Readiness
 
-- [ ] Improve mobile density for group cards and standings tables after browser QA.
-- [ ] Add clearer visual qualification lines for top 1/top 2/top 3/top 4.
-- [ ] Add filters for group/playoff/stage in the Matches tab if event sizes make the list noisy.
-- [ ] Add a small read-only explainer for FF and record-counting rules if users ask.
-- [ ] Keep normal player views free of organizer/admin group controls.
-- [ ] Consider a playoff seed preview table if organizers ask for more visibility before generation.
-
-## Organizer Live Controls
-
-- [ ] Add safer live controls for correcting accidental group FF results before playoff generation.
-- [ ] Add clearer reset/recovery guidance for manual seed, group draw, and playoff handoff states.
-- [ ] Consider organizer-facing previews for seeded group draw and bracket placement before generation.
-- [ ] Keep manual seed edits locked after generated matches start unless a safe reset path is available.
-
-## Tournament Timing 10B
-
-- [ ] Add automated overdue-match review only after lazy timing is proven in live tournaments.
-- [ ] If one player checked into the match room and the other did not, let staff apply FF for the checked-in player.
-- [ ] If neither player checked into the match room, let staff mark no contest.
-- [ ] If both players checked in but no result was submitted, route to no contest or organizer review.
-- [ ] If one player submitted a result and the other did not, prefer organizer review rather than automatic win by default.
-- [ ] Add a background worker or Edge Function before claiming timer outcomes happen exactly at deadlines.
-
-## Profile/Records Follow-Up
-
-- [ ] Add focused tests for record eligibility, BYE exclusion, FF exclusion, no-contest exclusion, and tournament tier rules.
-- [ ] Add profile page empty states for players with registrations but no finalized matches.
-- [ ] Improve tournament result labels once richer placement data exists.
-- [ ] Review `public_profiles` exposure before adding any new public profile fields.
+- [ ] Add focused tests for automation policy normalization, generated rules text, and timeout outcome policy selection.
+- [ ] Add database tests or seed scripts for timeout FF, no-contest, random advancement, and staff-review paths.
+- [ ] Document the no-cron/no-Edge-Function limitation: current automation is lazy and depends on app activity.
+- [ ] Review RLS policies for tournament automation events before public launch.
+- [ ] Run `npm run lint`, `npm run typecheck`, `npm run build`, and `git diff --check` before release.
 
 ## Always
 
 - [ ] Keep automated game verification, Discord bot features, payments, buy-ins, wallets, paid subscriptions, and wagering out of scope.
 - [ ] Keep dashboard calendar visibility independent from record eligibility.
 - [ ] Treat admin corrections as source-data corrections.
-- [ ] Run `npm run lint` and `npm run typecheck` after each follow-up change.

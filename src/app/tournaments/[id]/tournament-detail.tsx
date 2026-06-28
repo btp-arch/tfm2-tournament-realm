@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, type CSSProperties, type ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import {
@@ -71,6 +71,20 @@ import {
 import { ensureProfile } from "@/lib/profiles";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
+import {
+  automationModeLabels,
+  buildAutomationPolicyPayload,
+  formatAutomationEvent,
+  getAutomationPolicyWarnings,
+  getEnabledAutomationToggleLabels,
+  isAutomationActionEnabled,
+  neitherCheckedInTimeoutPolicyLabels,
+  normalizeAutomationPolicy,
+  oneCheckedInTimeoutPolicyLabels,
+  shouldRunAutomaticAutomation,
+  type AutomationActionKind,
+  type TournamentAutomationEventRow,
+} from "@/lib/tournament-automation";
 import { updateTournamentRegistrationSeed } from "@/lib/tournament-registration-seeds";
 import {
   canExtendTournamentWindow,
@@ -121,6 +135,7 @@ import {
   type TournamentStageRow,
   type TournamentStatus,
 } from "@/lib/tournaments";
+import type { Json } from "@/types/database.generated";
 
 type PublicProfile = {
   id: string;
@@ -166,6 +181,7 @@ type SavingAction =
   | "timing"
   | "timer-expiry"
   | "open-ready"
+  | "automation"
   | "reset"
   | "activate"
   | null;
@@ -767,6 +783,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const [matchReports, setMatchReports] = useState<MatchReportRow[]>([]);
   const [matchEvidence, setMatchEvidence] = useState<MatchEvidenceRow[]>([]);
   const [disputes, setDisputes] = useState<DisputeRow[]>([]);
+  const [automationEvents, setAutomationEvents] = useState<TournamentAutomationEventRow[]>([]);
   const [groups, setGroups] = useState<TournamentGroupRow[]>([]);
   const [groupMembers, setGroupMembers] = useState<TournamentGroupMemberRow[]>([]);
   const [activeRegistrationCount, setActiveRegistrationCount] = useState(0);
@@ -783,6 +800,9 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [clockNow, setClockNow] = useState(() => new Date());
+  const lastAutomaticAutomationSignatureRef = useRef("");
+  const generateBracketActionRef = useRef<(() => Promise<void>) | null>(null);
+  const generateGroupDrawActionRef = useRef<(() => Promise<void>) | null>(null);
   const [activeTab, setActiveTab] = useState<TournamentTabKey>("overview");
   const [historyGroupId, setHistoryGroupId] = useState<string | null>(null);
 
@@ -818,6 +838,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         setMatchReports([]);
         setMatchEvidence([]);
         setDisputes([]);
+        setAutomationEvents([]);
         return;
       }
 
@@ -831,6 +852,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         stagesResult,
         roundsResult,
         matchesResult,
+        automationEventsResult,
         groupsResult,
         groupMembersResult,
       ] = await Promise.all([
@@ -889,6 +911,12 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           .order("round_number", { ascending: true })
           .order("bracket_position", { ascending: true }),
         supabase
+          .from("tournament_automation_events")
+          .select("*")
+          .eq("tournament_id", loadedTournament.id)
+          .order("created_at", { ascending: false })
+          .limit(8),
+        supabase
           .from("tournament_groups")
           .select("*")
           .eq("tournament_id", loadedTournament.id)
@@ -909,6 +937,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       if (stagesResult.error) throw stagesResult.error;
       if (roundsResult.error) throw roundsResult.error;
       if (matchesResult.error) throw matchesResult.error;
+      if (automationEventsResult.error) throw automationEventsResult.error;
       if (groupsResult.error) throw groupsResult.error;
       if (groupMembersResult.error) throw groupMembersResult.error;
 
@@ -1053,6 +1082,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       setMatchReports(loadedMatchReports);
       setMatchEvidence(loadedMatchEvidence);
       setDisputes(loadedDisputes);
+      setAutomationEvents((automationEventsResult.data ?? []) as TournamentAutomationEventRow[]);
       setGroups(groupsResult.data);
       setGroupMembers(groupMembersResult.data);
       setActiveRegistrationCount(countRow?.active_registration_count ?? 0);
@@ -1131,6 +1161,11 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
 
   const isGroupStageTournament = tournament?.tournament_format === "group_stage_playoff";
   const timingSettings = tournament ? normalizeTournamentTimingSettings(tournament) : null;
+  const automationPolicy = tournament ? normalizeAutomationPolicy(tournament) : null;
+  const automationWarnings = automationPolicy ? getAutomationPolicyWarnings(automationPolicy) : [];
+  const enabledAutomationToggleLabels = automationPolicy
+    ? getEnabledAutomationToggleLabels(automationPolicy)
+    : [];
   const timingState = tournament
     ? getCurrentTournamentTimingState(tournament, Boolean(isGroupStageTournament), clockNow)
     : null;
@@ -1389,6 +1424,81 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
         tournament,
       })
     : [];
+  const eligibleAutomaticActions: {
+    detail: string;
+    enabled: boolean;
+    kind: AutomationActionKind;
+    label: string;
+  }[] = automationPolicy && tournament
+    ? [
+        ...(tournament.status === "registration_open" &&
+        tournament.registration_closes_at &&
+        new Date(tournament.registration_closes_at).getTime() <= clockNow.getTime()
+          ? [
+              {
+                detail: "Registration deadline has passed.",
+                enabled: isAutomationActionEnabled("close_registration", automationPolicy),
+                kind: "close_registration" as const,
+                label: "Close registration",
+              },
+            ]
+          : []),
+        ...(tournament.status === "registration_closed" &&
+        tournament.starts_at &&
+        new Date(tournament.starts_at).getTime() <= clockNow.getTime()
+          ? [
+              {
+                detail: "Scheduled start time has arrived.",
+                enabled: isAutomationActionEnabled("open_check_in", automationPolicy),
+                kind: "open_check_in" as const,
+                label: "Open check-in",
+              },
+            ]
+          : []),
+        ...expiredTimingActions.map((action) => ({
+          detail: action.detail,
+          enabled:
+            action.enabled &&
+            isAutomationActionEnabled(action.kind as AutomationActionKind, automationPolicy),
+          kind: action.kind as AutomationActionKind,
+          label: action.label,
+        })),
+        ...(tournament.status === "active" &&
+        matches.some(
+          (match) =>
+            match.player_one_id &&
+            match.player_two_id &&
+            (match.status === "pending" || match.status === "blocked"),
+        )
+          ? [
+              {
+                detail: "Known-player matches are waiting to open or sync round timers.",
+                enabled: isAutomationActionEnabled("open_ready_matches", automationPolicy),
+                kind: "open_ready_matches" as const,
+                label: "Open ready matches",
+              },
+            ]
+          : []),
+        ...(livePlayoffReadiness?.ready
+          ? [
+              {
+                detail: "Groups are resolved and playoff generation is safe.",
+                enabled: isAutomationActionEnabled("generate_group_playoff", automationPolicy),
+                kind: "generate_group_playoff" as const,
+                label: "Generate playoff",
+              },
+            ]
+          : []),
+      ]
+    : [];
+  const runnableAutomaticActions =
+    automationPolicy?.automationMode === "automatic"
+      ? eligibleAutomaticActions.filter((action) => action.enabled)
+      : [];
+  const automaticAutomationSignature = runnableAutomaticActions
+    .map((action) => action.kind)
+    .join("|");
+
   const liveNextAction =
     tournament &&
     liveRegistrationSummary &&
@@ -1688,24 +1798,63 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     );
   }
 
-  async function applyExpiredTimingAction(actionKind: (typeof expiredTimingActions)[number]["kind"]) {
+  async function logAutomationEvent(
+    eventType: string,
+    source: TournamentAutomationEventRow["source"],
+    details: Record<string, unknown> = {},
+  ) {
+    if (!tournament || !user || !canManageTournament) {
+      return;
+    }
+
+    const { error: insertError } = await supabase.from("tournament_automation_events").insert({
+      actor_id: user.id,
+      actor_type: roles.isAdmin ? "admin" : "organizer",
+      details: details as Json,
+      event_type: eventType,
+      source,
+      tournament_id: tournament.id,
+    });
+
+    if (insertError) {
+      logError("Automation event logging failed.", insertError);
+    }
+  }
+
+  async function applyExpiredTimingAction(
+    actionKind: (typeof expiredTimingActions)[number]["kind"],
+    options: { confirm?: boolean; source?: TournamentAutomationEventRow["source"] } = {},
+  ) {
     if (!tournament || !canManageTournament) {
       return;
     }
 
     if (actionKind === "generate_group_draw") {
-      await generateGroupDraw();
+      if (!generateGroupDrawActionRef.current) {
+        setError("Group draw generation is unavailable right now.");
+        return;
+      }
+
+      await generateGroupDrawActionRef.current();
       return;
     }
 
     if (actionKind === "generate_bracket") {
-      await generateBracket();
+      if (!generateBracketActionRef.current) {
+        setError("Bracket generation is unavailable right now.");
+        return;
+      }
+
+      await generateBracketActionRef.current();
       return;
     }
 
-    const confirmed = window.confirm(
-      "Apply this expired timer action now? This may update registration statuses or unresolved match outcomes according to the timing rules.",
-    );
+    const confirmed =
+      options.confirm === false
+        ? true
+        : window.confirm(
+            "Apply this expired timer action now? This may update registration statuses or unresolved match outcomes according to the timing rules.",
+          );
 
     if (!confirmed) {
       return;
@@ -1725,6 +1874,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           throw rpcError;
         }
 
+        await logAutomationEvent("apply_check_in_expiry", options.source ?? "manual_button");
         setNotice("Expired check-in window applied.");
       } else if (actionKind === "apply_replacement_expiry") {
         const { error: rpcError } = await supabase.rpc("apply_expired_replacement_window", {
@@ -1735,6 +1885,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           throw rpcError;
         }
 
+        await logAutomationEvent("apply_replacement_expiry", options.source ?? "manual_button");
         setNotice("Expired replacement window applied.");
       } else if (actionKind === "apply_group_round_expiry") {
         const payload: {
@@ -1752,6 +1903,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           throw rpcError;
         }
 
+        await logAutomationEvent("apply_group_round_expiry", options.source ?? "manual_button");
         setNotice("Expired group round outcomes applied.");
       } else if (actionKind === "apply_bracket_round_expiry") {
         const payload: {
@@ -1769,6 +1921,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
           throw rpcError;
         }
 
+        await logAutomationEvent("apply_bracket_round_expiry", options.source ?? "manual_button");
         setNotice("Expired bracket round outcomes applied.");
       }
 
@@ -1782,7 +1935,9 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     }
   }
 
-  async function openReadyMatchesAndTimers() {
+  async function openReadyMatchesAndTimers(
+    source: TournamentAutomationEventRow["source"] = "manual_button",
+  ) {
     if (!tournament || !canManageTournament) {
       return;
     }
@@ -1801,6 +1956,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       }
 
       setNotice("Ready matches opened and round timers synced.");
+      await logAutomationEvent("open_ready_matches", source);
       await loadTournament();
       router.refresh();
     } catch (caughtError) {
@@ -1810,6 +1966,214 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       setSavingAction(null);
     }
   }
+
+  async function updateAutomationPolicy(
+    patch: Partial<ReturnType<typeof buildAutomationPolicyPayload>>,
+    successMessage: string,
+  ) {
+    if (!tournament || !automationPolicy || !canManageTournament) {
+      return;
+    }
+
+    setSavingAction("automation");
+    setNotice(null);
+    setError(null);
+
+    try {
+      const { error: updateError } = await supabase
+        .from("tournaments")
+        .update({
+          ...patch,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tournament.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      await logAutomationEvent("policy_updated", "live_control", patch);
+      setNotice(successMessage);
+      await loadTournament();
+      router.refresh();
+    } catch (caughtError) {
+      logError("Automation policy update failed.", caughtError);
+      setError(formatError(caughtError, "Unable to update automation policy."));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  async function pauseAutomation() {
+    await updateAutomationPolicy(
+      { automation_paused_at: new Date().toISOString() },
+      "Automation paused.",
+    );
+  }
+
+  async function resumeAutomation() {
+    await updateAutomationPolicy({ automation_paused_at: null }, "Automation resumed.");
+  }
+
+  async function switchAutomationToManual() {
+    await updateAutomationPolicy(
+      { automation_mode: "manual", automation_paused_at: new Date().toISOString() },
+      "Automation switched to Manual and paused.",
+    );
+  }
+
+  async function applyAutomationAction(
+    actionKind: AutomationActionKind,
+    source: TournamentAutomationEventRow["source"],
+    confirmAction = false,
+  ) {
+    if (!tournament || !canManageTournament) {
+      return;
+    }
+
+    if (confirmAction) {
+      const confirmed = window.confirm(
+        "Apply eligible automatic actions now? Only currently eligible actions enabled by this tournament policy will run.",
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    if (actionKind === "close_registration") {
+      await updateTournamentStatusTo("registration_closed", "Registration closed.", "automation");
+      await logAutomationEvent("close_registration", source);
+    } else if (actionKind === "open_check_in") {
+      await updateTournamentStatusTo("check_in", "Check-in opened.", "automation");
+      await logAutomationEvent("open_check_in", source);
+    } else if (
+      actionKind === "apply_check_in_expiry" ||
+      actionKind === "apply_replacement_expiry" ||
+      actionKind === "apply_group_round_expiry" ||
+      actionKind === "apply_bracket_round_expiry"
+    ) {
+      await applyExpiredTimingAction(actionKind, { confirm: false, source });
+    } else if (actionKind === "generate_group_draw") {
+      if (!generateGroupDrawActionRef.current) {
+        setError("Group draw generation is unavailable right now.");
+        return;
+      }
+
+      await generateGroupDrawActionRef.current();
+      await logAutomationEvent("generate_group_draw", source);
+    } else if (actionKind === "generate_bracket") {
+      if (!generateBracketActionRef.current) {
+        setError("Bracket generation is unavailable right now.");
+        return;
+      }
+
+      await generateBracketActionRef.current();
+      await logAutomationEvent("generate_bracket", source);
+    } else if (actionKind === "open_ready_matches") {
+      await openReadyMatchesAndTimers(source);
+    } else if (actionKind === "generate_group_playoff" && user) {
+      setSavingAction("automation");
+      setNotice(null);
+      setError(null);
+
+      try {
+        const { error: rpcError } = await supabase.rpc("auto_generate_group_playoff", {
+          actor: user.id,
+          target_tournament: tournament.id,
+        });
+
+        if (rpcError) {
+          throw rpcError;
+        }
+
+        await logAutomationEvent("generate_group_playoff", source);
+        setNotice("Playoff generated.");
+        await loadTournament();
+        router.refresh();
+      } catch (caughtError) {
+        logError("Automatic playoff generation failed.", caughtError);
+        setError(formatError(caughtError, "Unable to generate playoff bracket."));
+      } finally {
+        setSavingAction(null);
+      }
+    }
+  }
+
+  async function applyEligibleAutomationActions(
+    source: TournamentAutomationEventRow["source"] = "manual_button",
+    confirmAction = true,
+  ) {
+    if (!tournament || !automationPolicy || !canManageTournament || tournament.timers_paused_at) {
+      return;
+    }
+
+    if (automationPolicy.automationMode !== "automatic") {
+      setNotice("Manual mode is active. Use the individual Live Control buttons to apply actions.");
+      return;
+    }
+
+    if (automationPolicy.automationPausedAt) {
+      setError("Automation is paused. Resume automation before running eligible actions.");
+      return;
+    }
+
+    const actions = runnableAutomaticActions;
+
+    if (actions.length === 0) {
+      setNotice("No eligible automatic actions are currently enabled.");
+      return;
+    }
+
+    if (confirmAction) {
+      const confirmed = window.confirm(
+        `Run ${actions.length} eligible automatic action${actions.length === 1 ? "" : "s"} now?`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    for (const action of actions) {
+      await applyAutomationAction(action.kind, source, false);
+    }
+
+    if (tournament) {
+      await supabase
+        .from("tournaments")
+        .update({
+          last_automation_run_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tournament.id);
+    }
+  }
+
+  useEffect(() => {
+    if (
+      !automationPolicy ||
+      !shouldRunAutomaticAutomation(automationPolicy) ||
+      !canManageTournament ||
+      !automaticAutomationSignature ||
+      automaticAutomationSignature === lastAutomaticAutomationSignatureRef.current ||
+      savingAction ||
+      tournament?.timers_paused_at
+    ) {
+      return;
+    }
+
+    lastAutomaticAutomationSignatureRef.current = automaticAutomationSignature;
+    void applyEligibleAutomationActions("page_poll", false);
+    // The runner is intentionally keyed by automaticAutomationSignature and guarded by a ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    automationPolicy,
+    canManageTournament,
+    automaticAutomationSignature,
+    savingAction,
+    tournament?.timers_paused_at,
+  ]);
 
   async function manualCheckIn(participant: Participant) {
     if (!user || !tournament || !canManageTournament || participant.checkIn) {
@@ -2601,6 +2965,9 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     }
   }
 
+  generateBracketActionRef.current = generateBracket;
+  generateGroupDrawActionRef.current = generateGroupDraw;
+
   async function resetGroupDraw() {
     if (!tournament || !canManageTournament || !groupStage) {
       return;
@@ -3180,8 +3547,178 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                   }
                 />
               ) : null}
+              {automationPolicy ? (
+                <LiveMetricCard
+                  label="Automation"
+                  value={automationModeLabels[automationPolicy.automationMode]}
+                />
+              ) : null}
             </div>
           </section>
+
+          {automationPolicy ? (
+            <section className="card">
+              <div className="section-heading compact-heading">
+                <div>
+                  <h2>Automation Policy</h2>
+                  <p
+                    className={
+                      automationPolicy.automationMode === "automatic"
+                        ? "error"
+                        : automationPolicy.automationPausedAt
+                          ? "notice"
+                          : "muted"
+                    }
+                  >
+                    {automationPolicy.automationPausedAt
+                      ? "Automation is paused."
+                      : automationPolicy.automationMode === "automatic"
+                        ? "Automatic mode is enabled for selected actions."
+                        : "Manual mode is showing recommendations only."}
+                  </p>
+                </div>
+                <MatchStatusBadge
+                  tone={
+                    automationPolicy.automationMode === "automatic"
+                      ? "danger"
+                      : automationPolicy.automationPausedAt
+                        ? "gold"
+                        : "muted"
+                  }
+                >
+                  {automationModeLabels[automationPolicy.automationMode]}
+                </MatchStatusBadge>
+              </div>
+
+              {automationWarnings.length > 0 ? (
+                <div className="stack">
+                  {automationWarnings.map((warning) => (
+                    <p className="error" key={warning}>
+                      {warning}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="live-chip-list" aria-label="Enabled automation toggles">
+                {enabledAutomationToggleLabels.length > 0 ? (
+                  enabledAutomationToggleLabels.map((label) => (
+                    <span className="badge" key={label}>
+                      {label}
+                    </span>
+                  ))
+                ) : (
+                  <span className="badge status-badge-muted">No automatic toggles enabled</span>
+                )}
+              </div>
+
+              <dl className="meta-grid">
+                <div>
+                  <dt>One checked in</dt>
+                  <dd>{oneCheckedInTimeoutPolicyLabels[automationPolicy.oneCheckedInTimeoutPolicy]}</dd>
+                </div>
+                <div>
+                  <dt>Neither checked in: groups</dt>
+                  <dd>{neitherCheckedInTimeoutPolicyLabels[automationPolicy.neitherCheckedInGroupPolicy]}</dd>
+                </div>
+                <div>
+                  <dt>Neither checked in: bracket</dt>
+                  <dd>{neitherCheckedInTimeoutPolicyLabels[automationPolicy.neitherCheckedInBracketPolicy]}</dd>
+                </div>
+                <div>
+                  <dt>Automatic eligible now</dt>
+                  <dd>{runnableAutomaticActions.length}</dd>
+                </div>
+              </dl>
+
+              {eligibleAutomaticActions.length > 0 ? (
+                <div className="stack">
+                  <h3>Automatic Policy Actions</h3>
+                  {eligibleAutomaticActions.map((action) => (
+                    <p
+                      className={
+                        action.enabled && automationPolicy.automationMode === "automatic"
+                          ? "notice"
+                          : "muted"
+                      }
+                      key={action.kind}
+                    >
+                      <strong>{action.label}:</strong>{" "}
+                      {action.enabled
+                        ? automationPolicy.automationMode === "automatic"
+                          ? action.detail
+                          : `${action.detail} Manual mode requires staff to use the individual Live Control button.`
+                        : `${action.detail} Automatic toggle is off.`}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">No automatic action is pending.</p>
+              )}
+
+              <div className="management-actions">
+                <div>
+                  <h3>Automation Controls</h3>
+                  <p className="muted">
+                    Run applies only in Automatic mode and only for currently eligible actions enabled by this policy.
+                  </p>
+                </div>
+                <div className="role-actions">
+                  <button
+                    className="button"
+                    disabled={
+                      savingAction === "automation" ||
+                      runnableAutomaticActions.length === 0 ||
+                      Boolean(tournament.timers_paused_at) ||
+                      Boolean(automationPolicy.automationPausedAt)
+                    }
+                    type="button"
+                    onClick={() => applyEligibleAutomationActions("live_control", true)}
+                  >
+                    {savingAction === "automation" ? "Running..." : "Run Automation Now"}
+                  </button>
+                  <button
+                    className="button secondary-button"
+                    disabled={savingAction === "automation" || Boolean(automationPolicy.automationPausedAt)}
+                    type="button"
+                    onClick={pauseAutomation}
+                  >
+                    Pause Automation
+                  </button>
+                  <button
+                    className="button"
+                    disabled={savingAction === "automation" || !automationPolicy.automationPausedAt}
+                    type="button"
+                    onClick={resumeAutomation}
+                  >
+                    Resume Automation
+                  </button>
+                  <button
+                    className="button danger-button"
+                    disabled={savingAction === "automation" || automationPolicy.automationMode === "manual"}
+                    type="button"
+                    onClick={switchAutomationToManual}
+                  >
+                    Switch To Manual
+                  </button>
+                </div>
+              </div>
+
+              <div className="stack">
+                <h3>Recent Automation Events</h3>
+                {automationEvents.length > 0 ? (
+                  automationEvents.slice(0, 5).map((event) => (
+                    <p className="muted" key={event.id}>
+                      <strong>{formatAutomationEvent(event)}:</strong>{" "}
+                      {formatDateTime(event.created_at)}
+                    </p>
+                  ))
+                ) : (
+                  <p className="muted">No automation events logged yet.</p>
+                )}
+              </div>
+            </section>
+          ) : null}
 
           {timingState && timingSettings ? (
             <section className="card">
@@ -3285,7 +3822,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                     className="button secondary-button"
                     disabled={!canManageTournament || savingAction === "open-ready"}
                     type="button"
-                    onClick={openReadyMatchesAndTimers}
+                    onClick={() => openReadyMatchesAndTimers()}
                   >
                     {savingAction === "open-ready" ? "Syncing..." : "Open Ready Matches"}
                   </button>
@@ -3419,7 +3956,10 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
               ) : null}
 
               <p className="muted">
-                Auto-apply timer outcomes is {timingSettings.autoApplyTimerOutcomes ? "configured on" : "off"}; expired timers require organizer/admin confirmation in Live Control.
+                Match timeout automation is {automationPolicy?.autoApplyMatchTimeoutOutcomes ? "enabled" : "off"}.
+                {automationPolicy?.automationMode === "automatic"
+                  ? " Automatic mode may apply enabled timeout outcomes when eligible."
+                  : " Manual mode still requires organizer/admin confirmation."}
               </p>
             </section>
           ) : null}

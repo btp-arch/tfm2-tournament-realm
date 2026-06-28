@@ -1,4 +1,5 @@
 import type { RoleState } from "@/lib/roles";
+import { generateAutomationRulesText } from "@/lib/tournament-automation";
 import {
   matchFormatLabels,
   type MatchFormat,
@@ -468,7 +469,19 @@ export function generateTournamentTimingRulesText(
   tournament: Pick<
     TournamentRow,
     | "auto_apply_timer_outcomes"
+    | "auto_advance_group_round_waves"
+    | "auto_apply_match_timeout_outcomes"
+    | "auto_close_check_in_at_deadline"
+    | "auto_close_registration_at_deadline"
+    | "auto_close_replacement_window_at_deadline"
+    | "auto_generate_draw_after_replacement"
+    | "auto_generate_playoff_when_groups_resolved"
+    | "auto_open_check_in_at_start_time"
     | "auto_open_ready_matches"
+    | "auto_open_replacement_window_if_spots_available"
+    | "automation_mode"
+    | "automation_paused_at"
+    | "both_checked_in_no_result_policy"
     | "bracket_bo1_round_minutes"
     | "bracket_bo3_round_minutes"
     | "bracket_bo5_round_minutes"
@@ -478,6 +491,10 @@ export function generateTournamentTimingRulesText(
     | "group_bo3_round_minutes"
     | "group_stage_format"
     | "independent_group_progression"
+    | "neither_checked_in_bracket_policy"
+    | "neither_checked_in_group_policy"
+    | "one_checked_in_timeout_policy"
+    | "one_report_no_response_policy"
     | "pre_semifinal_match_format"
     | "replacement_window_enabled"
     | "replacement_window_minutes"
@@ -526,11 +543,10 @@ export function generateTournamentTimingRulesText(
       ? "Ready matches may open when both players are known, subject to staff control."
       : "Ready matches open when staff advances tournament operations.",
     settings.autoApplyTimerOutcomes
-      ? "Timer outcomes are configured for staff-confirmed automation; expired timers still require organizer/admin action from Live Control."
-      : "Expired timers do not silently decide matches; tournament staff applies overdue window and match actions from Live Control.",
+      ? "Timer outcomes use the tournament's configured automation policy."
+      : "Expired timers do not silently decide matches unless the automation policy explicitly allows it.",
+    generateAutomationRulesText(tournament),
     "Tournament staff may pause, resume, extend, or force close timing windows when needed. While paused, timers do not expire.",
-    "If a match timer expires and exactly one player checked into the match room, staff may award a forfeit win to the checked-in player. If neither player checked in, staff may mark the match no contest. If both players checked in without a result, or one player submitted a result without confirmation, staff review is required.",
-    "Forfeits count for group standings but do not count toward public player records. BYEs and no-contests do not count toward public player records.",
     "Replacement players are unseeded.",
   ]
     .filter(Boolean)

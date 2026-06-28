@@ -155,6 +155,18 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 - Admins control tournament classification from `/admin` tournament management. Classification is separate from calendar visibility and uses `tournament_tier` values of `test`, `community`, `official`, or `championship`, plus `exclude_from_stats`.
 - Organizers can see classification state on organizer and tournament detail surfaces, but only admins can mark official/championship tiers or exclude tournaments from stats.
 
+### Automation modes and timeout policies
+
+- Tournament automation defaults to `Manual`. Manual mode shows recommendations only, and tournament staff confirms each action.
+- `Automatic` mode must be explicitly enabled by tournament staff. Only enabled policy toggles can run automatically from app page activity or Live Control polling.
+- Staff can pause automation, resume automation, or emergency-switch a tournament back to Manual from Live Control. Paused timers also block automatic actions.
+- Automation toggles cover registration close, check-in open/close, replacement window open/close, draw or bracket generation, ready-match opening, match timeout outcomes, group round wave advancement, and group playoff generation.
+- If exactly one player checks into a match room before timeout, the default policy awards the checked-in player an FF/forfeit win.
+- If neither player checks in, group matches default to no contest and bracket matches default to staff review. Staff may opt into random advancement, which moves the tournament forward but does not count toward public player records.
+- If both players check in but no result is submitted, the default policy is staff review. If one player submits a result and the other does not, staff review remains required.
+- Forfeits may affect group standings, but forfeits, BYEs, no-contests, and random timeout advancement are excluded from public player records and game records.
+- Automation events are logged in `tournament_automation_events` and surfaced in Live Control.
+
 ### Player records and match history
 
 - Public player record pages live at `/players/[id]`; `/profile` remains the signed-in user's editable profile.

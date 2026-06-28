@@ -921,6 +921,61 @@ export type Database = {
         }
         Relationships: []
       }
+      tournament_automation_events: {
+        Row: {
+          actor_id: string | null
+          actor_type: string
+          created_at: string
+          details: Json
+          event_type: string
+          id: string
+          source: string
+          tournament_id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          actor_type?: string
+          created_at?: string
+          details?: Json
+          event_type: string
+          id?: string
+          source?: string
+          tournament_id: string
+        }
+        Update: {
+          actor_id?: string | null
+          actor_type?: string
+          created_at?: string
+          details?: Json
+          event_type?: string
+          id?: string
+          source?: string
+          tournament_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tournament_automation_events_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_automation_events_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "public_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_automation_events_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tournament_check_ins: {
         Row: {
           checked_in_at: string
@@ -1347,8 +1402,20 @@ export type Database = {
       }
       tournaments: {
         Row: {
+          auto_advance_group_round_waves: boolean
+          auto_apply_match_timeout_outcomes: boolean
           auto_apply_timer_outcomes: boolean
+          auto_close_check_in_at_deadline: boolean
+          auto_close_registration_at_deadline: boolean
+          auto_close_replacement_window_at_deadline: boolean
+          auto_generate_draw_after_replacement: boolean
+          auto_generate_playoff_when_groups_resolved: boolean
+          auto_open_check_in_at_start_time: boolean
           auto_open_ready_matches: boolean
+          auto_open_replacement_window_if_spots_available: boolean
+          automation_mode: string
+          automation_paused_at: string | null
+          both_checked_in_no_result_policy: string
           bracket_bo1_round_minutes: number
           bracket_bo3_round_minutes: number
           bracket_bo5_round_minutes: number
@@ -1371,10 +1438,15 @@ export type Database = {
           groups_count: number | null
           id: string
           independent_group_progression: boolean
+          last_automation_run_at: string | null
           max_players: number | null
           name: string
+          neither_checked_in_bracket_policy: string
+          neither_checked_in_group_policy: string
           official_marked_at: string | null
           official_marked_by: string | null
+          one_checked_in_timeout_policy: string
+          one_report_no_response_policy: string
           pre_semifinal_match_format: Database["public"]["Enums"]["match_format"]
           qualifiers_per_group: number | null
           registration_closes_at: string | null
@@ -1395,8 +1467,20 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          auto_advance_group_round_waves?: boolean
+          auto_apply_match_timeout_outcomes?: boolean
           auto_apply_timer_outcomes?: boolean
+          auto_close_check_in_at_deadline?: boolean
+          auto_close_registration_at_deadline?: boolean
+          auto_close_replacement_window_at_deadline?: boolean
+          auto_generate_draw_after_replacement?: boolean
+          auto_generate_playoff_when_groups_resolved?: boolean
+          auto_open_check_in_at_start_time?: boolean
           auto_open_ready_matches?: boolean
+          auto_open_replacement_window_if_spots_available?: boolean
+          automation_mode?: string
+          automation_paused_at?: string | null
+          both_checked_in_no_result_policy?: string
           bracket_bo1_round_minutes?: number
           bracket_bo3_round_minutes?: number
           bracket_bo5_round_minutes?: number
@@ -1421,10 +1505,15 @@ export type Database = {
           groups_count?: number | null
           id?: string
           independent_group_progression?: boolean
+          last_automation_run_at?: string | null
           max_players?: number | null
           name: string
+          neither_checked_in_bracket_policy?: string
+          neither_checked_in_group_policy?: string
           official_marked_at?: string | null
           official_marked_by?: string | null
+          one_checked_in_timeout_policy?: string
+          one_report_no_response_policy?: string
           pre_semifinal_match_format?: Database["public"]["Enums"]["match_format"]
           qualifiers_per_group?: number | null
           registration_closes_at?: string | null
@@ -1445,8 +1534,20 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          auto_advance_group_round_waves?: boolean
+          auto_apply_match_timeout_outcomes?: boolean
           auto_apply_timer_outcomes?: boolean
+          auto_close_check_in_at_deadline?: boolean
+          auto_close_registration_at_deadline?: boolean
+          auto_close_replacement_window_at_deadline?: boolean
+          auto_generate_draw_after_replacement?: boolean
+          auto_generate_playoff_when_groups_resolved?: boolean
+          auto_open_check_in_at_start_time?: boolean
           auto_open_ready_matches?: boolean
+          auto_open_replacement_window_if_spots_available?: boolean
+          automation_mode?: string
+          automation_paused_at?: string | null
+          both_checked_in_no_result_policy?: string
           bracket_bo1_round_minutes?: number
           bracket_bo3_round_minutes?: number
           bracket_bo5_round_minutes?: number
@@ -1471,10 +1572,15 @@ export type Database = {
           groups_count?: number | null
           id?: string
           independent_group_progression?: boolean
+          last_automation_run_at?: string | null
           max_players?: number | null
           name?: string
+          neither_checked_in_bracket_policy?: string
+          neither_checked_in_group_policy?: string
           official_marked_at?: string | null
           official_marked_by?: string | null
+          one_checked_in_timeout_policy?: string
+          one_report_no_response_policy?: string
           pre_semifinal_match_format?: Database["public"]["Enums"]["match_format"]
           qualifiers_per_group?: number | null
           registration_closes_at?: string | null
@@ -2303,8 +2409,20 @@ export type Database = {
       set_tournament_calendar_visibility: {
         Args: { target_tournament: string; visible: boolean }
         Returns: {
+          auto_advance_group_round_waves: boolean
+          auto_apply_match_timeout_outcomes: boolean
           auto_apply_timer_outcomes: boolean
+          auto_close_check_in_at_deadline: boolean
+          auto_close_registration_at_deadline: boolean
+          auto_close_replacement_window_at_deadline: boolean
+          auto_generate_draw_after_replacement: boolean
+          auto_generate_playoff_when_groups_resolved: boolean
+          auto_open_check_in_at_start_time: boolean
           auto_open_ready_matches: boolean
+          auto_open_replacement_window_if_spots_available: boolean
+          automation_mode: string
+          automation_paused_at: string | null
+          both_checked_in_no_result_policy: string
           bracket_bo1_round_minutes: number
           bracket_bo3_round_minutes: number
           bracket_bo5_round_minutes: number
@@ -2327,10 +2445,15 @@ export type Database = {
           groups_count: number | null
           id: string
           independent_group_progression: boolean
+          last_automation_run_at: string | null
           max_players: number | null
           name: string
+          neither_checked_in_bracket_policy: string
+          neither_checked_in_group_policy: string
           official_marked_at: string | null
           official_marked_by: string | null
+          one_checked_in_timeout_policy: string
+          one_report_no_response_policy: string
           pre_semifinal_match_format: Database["public"]["Enums"]["match_format"]
           qualifiers_per_group: number | null
           registration_closes_at: string | null
@@ -2364,8 +2487,20 @@ export type Database = {
           tier: Database["public"]["Enums"]["tournament_tier"]
         }
         Returns: {
+          auto_advance_group_round_waves: boolean
+          auto_apply_match_timeout_outcomes: boolean
           auto_apply_timer_outcomes: boolean
+          auto_close_check_in_at_deadline: boolean
+          auto_close_registration_at_deadline: boolean
+          auto_close_replacement_window_at_deadline: boolean
+          auto_generate_draw_after_replacement: boolean
+          auto_generate_playoff_when_groups_resolved: boolean
+          auto_open_check_in_at_start_time: boolean
           auto_open_ready_matches: boolean
+          auto_open_replacement_window_if_spots_available: boolean
+          automation_mode: string
+          automation_paused_at: string | null
+          both_checked_in_no_result_policy: string
           bracket_bo1_round_minutes: number
           bracket_bo3_round_minutes: number
           bracket_bo5_round_minutes: number
@@ -2388,10 +2523,15 @@ export type Database = {
           groups_count: number | null
           id: string
           independent_group_progression: boolean
+          last_automation_run_at: string | null
           max_players: number | null
           name: string
+          neither_checked_in_bracket_policy: string
+          neither_checked_in_group_policy: string
           official_marked_at: string | null
           official_marked_by: string | null
+          one_checked_in_timeout_policy: string
+          one_report_no_response_policy: string
           pre_semifinal_match_format: Database["public"]["Enums"]["match_format"]
           qualifiers_per_group: number | null
           registration_closes_at: string | null
@@ -2489,6 +2629,7 @@ export type Database = {
         | "disputed"
         | "resolved"
         | "note"
+        | "timer_expired"
       match_format: "bo1" | "bo3" | "bo5"
       match_result_type:
         | "played"
@@ -2692,6 +2833,7 @@ export const Constants = {
         "disputed",
         "resolved",
         "note",
+        "timer_expired",
       ],
       match_format: ["bo1", "bo3", "bo5"],
       match_result_type: [

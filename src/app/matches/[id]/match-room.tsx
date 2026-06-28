@@ -30,6 +30,12 @@ import { ensureProfile } from "@/lib/profiles";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
 import {
+  bothCheckedInNoResultPolicyLabels,
+  neitherCheckedInTimeoutPolicyLabels,
+  normalizeAutomationPolicy,
+  oneCheckedInTimeoutPolicyLabels,
+} from "@/lib/tournament-automation";
+import {
   formatDateTime,
   formatMatchFinalScore,
   formatSeriesScore,
@@ -487,6 +493,28 @@ export function MatchRoom({ matchId }: { matchId: string }) {
         opponentCheckIn,
       )
     : null;
+  const automationPolicy = tournament ? normalizeAutomationPolicy(tournament) : null;
+  const roundDeadline = round?.deadline_at
+    ? new Date(round.deadline_at)
+    : match?.group_id && tournament?.current_group_round_deadline
+      ? new Date(tournament.current_group_round_deadline)
+      : tournament?.current_bracket_round_deadline
+        ? new Date(tournament.current_bracket_round_deadline)
+        : null;
+  const timeoutPolicySummary =
+    automationPolicy && roundDeadline
+      ? [
+          `If only one player checks in before timer expiry, policy: ${oneCheckedInTimeoutPolicyLabels[automationPolicy.oneCheckedInTimeoutPolicy]}.`,
+          `If neither player checks in, policy: ${
+            neitherCheckedInTimeoutPolicyLabels[
+              match?.group_id
+                ? automationPolicy.neitherCheckedInGroupPolicy
+                : automationPolicy.neitherCheckedInBracketPolicy
+            ]
+          }.`,
+          `If both players check in but no result is submitted, policy: ${bothCheckedInNoResultPolicyLabels[automationPolicy.bothCheckedInNoResultPolicy]}.`,
+        ].join(" ")
+      : null;
   const currentStepLabel = match
     ? getCurrentStepLabel({
         match,
@@ -920,6 +948,9 @@ export function MatchRoom({ matchId }: { matchId: string }) {
             <h2>{currentStepLabel}</h2>
             <p className="muted">{actionMessage}</p>
             <p className="muted">{setupStatusMessage}</p>
+            {timeoutPolicySummary ? (
+              <p className="muted">{timeoutPolicySummary}</p>
+            ) : null}
             {lastUpdatedAt ? (
               <p className="muted">Last updated {lastUpdatedAt.toLocaleTimeString()}.</p>
             ) : null}
@@ -1092,6 +1123,8 @@ export function MatchRoom({ matchId }: { matchId: string }) {
             Result confirmed.{" "}
             {match.result_type === "forfeit" && match.winner_id
               ? `${getProfileName(profileMap, match.winner_id) ?? "Winner"} won by forfeit.`
+              : match.result_type === "no_contest" && match.winner_id
+                ? `${getProfileName(profileMap, match.winner_id) ?? "Winner"} advanced by no-contest timeout policy. This does not count toward public player records.`
               : match.winner_id
               ? `${getProfileName(profileMap, match.winner_id) ?? "Winner"} advanced${finalScoreLabel ? ` ${finalScoreLabel}` : ""}.`
               : "No winner was advanced."}

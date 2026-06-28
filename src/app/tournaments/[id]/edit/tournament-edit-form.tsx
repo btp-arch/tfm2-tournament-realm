@@ -15,6 +15,21 @@ import { ensureProfile } from "@/lib/profiles";
 import { emptyRoleState, getCurrentUserRoles, type RoleState } from "@/lib/roles";
 import { createClient } from "@/lib/supabase/client";
 import {
+  automationModeLabels,
+  bothCheckedInNoResultPolicyLabels,
+  buildAutomationPolicyPayload,
+  canEditAutomationPolicy,
+  getAutomationPolicyWarnings,
+  neitherCheckedInTimeoutPolicyLabels,
+  normalizeAutomationPolicy,
+  oneCheckedInTimeoutPolicyLabels,
+  type AutomationMode,
+  type BothCheckedInNoResultPolicy,
+  type NeitherCheckedInTimeoutPolicy,
+  type OneCheckedInTimeoutPolicy,
+  type TournamentAutomationPolicy,
+} from "@/lib/tournament-automation";
+import {
   buildTimingInsertPayload,
   canEditTimingSettings,
   maxTournamentTimerMinutes,
@@ -61,6 +76,7 @@ type TournamentFormState = {
   rules: string;
   externalCommunityUrl: string;
   status: TournamentStatus;
+  automation: TournamentAutomationPolicy;
   timing: TournamentTimingSettings;
 };
 
@@ -89,6 +105,7 @@ function toFormState(tournament: TournamentRow): TournamentFormState {
     status: editableTournamentStatuses.includes(tournament.status)
       ? tournament.status
       : "draft",
+    automation: normalizeAutomationPolicy(tournament),
     timing: normalizeTournamentTimingSettings(tournament),
   };
 }
@@ -193,6 +210,10 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
     tournament &&
       canEditTimingSettings(tournament, roles, user?.id ?? null, isManagedByUser),
   );
+  const canEditAutomation = Boolean(
+    tournament &&
+      canEditAutomationPolicy(tournament, roles, user?.id ?? null, isManagedByUser),
+  );
 
   function updateField<Field extends keyof TournamentFormState>(
     field: Field,
@@ -211,6 +232,23 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
             ...current,
             timing: {
               ...current.timing,
+              [field]: value,
+            },
+          }
+        : current,
+    );
+  }
+
+  function updateAutomationField<Field extends keyof TournamentAutomationPolicy>(
+    field: Field,
+    value: TournamentAutomationPolicy[Field],
+  ) {
+    setFormState((current) =>
+      current
+        ? {
+            ...current,
+            automation: {
+              ...current.automation,
               [field]: value,
             },
           }
@@ -326,6 +364,7 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
           status: formState.status,
           updated_at: new Date().toISOString(),
           ...(canEditTiming ? buildTimingInsertPayload(formState.timing) : {}),
+          ...(canEditAutomation ? buildAutomationPolicyPayload(formState.automation) : {}),
         })
         .eq("id", tournament.id);
 
@@ -770,29 +809,244 @@ export function EditTournamentForm({ tournamentId }: { tournamentId: string }) {
 
             <label className="checkbox-label" htmlFor="auto-open-ready-matches">
               <input
-                checked={formState.timing.autoOpenReadyMatches}
-                disabled={!canEditTiming}
+                checked={formState.automation.autoOpenReadyMatches}
+                disabled={!canEditAutomation}
                 id="auto-open-ready-matches"
                 type="checkbox"
                 onChange={(event) =>
-                  updateTimingField("autoOpenReadyMatches", event.target.checked)
+                  updateAutomationField("autoOpenReadyMatches", event.target.checked)
                 }
               />
-              Auto-open ready matches when both players are known
+              Allow automatic ready-match opening when both players are known
+            </label>
+          </section>
+
+          <section className="form-section">
+            <div>
+              <h2>Automation Policy</h2>
+              <p className="muted">
+                Manual mode recommends actions. Automatic mode may run enabled actions from app activity.
+              </p>
+            </div>
+
+            <label htmlFor="automation-mode">
+              Automation mode
+              <select
+                disabled={!canEditAutomation}
+                id="automation-mode"
+                value={formState.automation.automationMode}
+                onChange={(event) =>
+                  updateAutomationField("automationMode", event.target.value as AutomationMode)
+                }
+              >
+                {Object.entries(automationModeLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
             </label>
 
-            <label className="checkbox-label" htmlFor="auto-apply-timer-outcomes">
-              <input
-                checked={formState.timing.autoApplyTimerOutcomes}
-                disabled
-                id="auto-apply-timer-outcomes"
-                type="checkbox"
-                onChange={(event) =>
-                  updateTimingField("autoApplyTimerOutcomes", event.target.checked)
-                }
-              />
-              Auto-apply timer outcomes (planned; kept off)
-            </label>
+            <div className="form-grid">
+              <label className="checkbox-label" htmlFor="auto-close-registration">
+                <input
+                  checked={formState.automation.autoCloseRegistrationAtDeadline}
+                  disabled={!canEditAutomation}
+                  id="auto-close-registration"
+                  type="checkbox"
+                  onChange={(event) =>
+                    updateAutomationField("autoCloseRegistrationAtDeadline", event.target.checked)
+                  }
+                />
+                Allow automatic registration close at deadline
+              </label>
+
+              <label className="checkbox-label" htmlFor="auto-open-check-in">
+                <input
+                  checked={formState.automation.autoOpenCheckInAtStartTime}
+                  disabled={!canEditAutomation}
+                  id="auto-open-check-in"
+                  type="checkbox"
+                  onChange={(event) =>
+                    updateAutomationField("autoOpenCheckInAtStartTime", event.target.checked)
+                  }
+                />
+                Allow automatic check-in open at start time
+              </label>
+
+              <label className="checkbox-label" htmlFor="auto-close-check-in">
+                <input
+                  checked={formState.automation.autoCloseCheckInAtDeadline}
+                  disabled={!canEditAutomation}
+                  id="auto-close-check-in"
+                  type="checkbox"
+                  onChange={(event) =>
+                    updateAutomationField("autoCloseCheckInAtDeadline", event.target.checked)
+                  }
+                />
+                Allow automatic check-in close at deadline
+              </label>
+
+              <label className="checkbox-label" htmlFor="auto-open-replacement">
+                <input
+                  checked={formState.automation.autoOpenReplacementWindowIfSpotsAvailable}
+                  disabled={!canEditAutomation}
+                  id="auto-open-replacement"
+                  type="checkbox"
+                  onChange={(event) =>
+                    updateAutomationField(
+                      "autoOpenReplacementWindowIfSpotsAvailable",
+                      event.target.checked,
+                    )
+                  }
+                />
+                Allow automatic replacement window opening
+              </label>
+
+              <label className="checkbox-label" htmlFor="auto-close-replacement">
+                <input
+                  checked={formState.automation.autoCloseReplacementWindowAtDeadline}
+                  disabled={!canEditAutomation}
+                  id="auto-close-replacement"
+                  type="checkbox"
+                  onChange={(event) =>
+                    updateAutomationField("autoCloseReplacementWindowAtDeadline", event.target.checked)
+                  }
+                />
+                Allow automatic replacement window close at deadline
+              </label>
+
+              <label className="checkbox-label" htmlFor="auto-generate-draw">
+                <input
+                  checked={formState.automation.autoGenerateDrawAfterReplacement}
+                  disabled={!canEditAutomation}
+                  id="auto-generate-draw"
+                  type="checkbox"
+                  onChange={(event) =>
+                    updateAutomationField("autoGenerateDrawAfterReplacement", event.target.checked)
+                  }
+                />
+                Allow automatic draw or bracket generation
+              </label>
+
+              <label className="checkbox-label" htmlFor="auto-timeout-outcomes">
+                <input
+                  checked={formState.automation.autoApplyMatchTimeoutOutcomes}
+                  disabled={!canEditAutomation}
+                  id="auto-timeout-outcomes"
+                  type="checkbox"
+                  onChange={(event) =>
+                    updateAutomationField("autoApplyMatchTimeoutOutcomes", event.target.checked)
+                  }
+                />
+                Allow automatic match timeout outcomes
+              </label>
+
+              <label className="checkbox-label" htmlFor="auto-playoff-generation">
+                <input
+                  checked={formState.automation.autoGeneratePlayoffWhenGroupsResolved}
+                  disabled={!canEditAutomation}
+                  id="auto-playoff-generation"
+                  type="checkbox"
+                  onChange={(event) =>
+                    updateAutomationField("autoGeneratePlayoffWhenGroupsResolved", event.target.checked)
+                  }
+                />
+                Allow automatic playoff generation when groups resolve
+              </label>
+            </div>
+
+            <div className="form-grid">
+              <label htmlFor="one-checked-in-policy">
+                One player checked in
+                <select
+                  disabled={!canEditAutomation}
+                  id="one-checked-in-policy"
+                  value={formState.automation.oneCheckedInTimeoutPolicy}
+                  onChange={(event) =>
+                    updateAutomationField(
+                      "oneCheckedInTimeoutPolicy",
+                      event.target.value as OneCheckedInTimeoutPolicy,
+                    )
+                  }
+                >
+                  {Object.entries(oneCheckedInTimeoutPolicyLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label htmlFor="neither-group-policy">
+                Neither checked in: groups
+                <select
+                  disabled={!canEditAutomation}
+                  id="neither-group-policy"
+                  value={formState.automation.neitherCheckedInGroupPolicy}
+                  onChange={(event) =>
+                    updateAutomationField(
+                      "neitherCheckedInGroupPolicy",
+                      event.target.value as NeitherCheckedInTimeoutPolicy,
+                    )
+                  }
+                >
+                  {Object.entries(neitherCheckedInTimeoutPolicyLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label htmlFor="neither-bracket-policy">
+                Neither checked in: bracket
+                <select
+                  disabled={!canEditAutomation}
+                  id="neither-bracket-policy"
+                  value={formState.automation.neitherCheckedInBracketPolicy}
+                  onChange={(event) =>
+                    updateAutomationField(
+                      "neitherCheckedInBracketPolicy",
+                      event.target.value as NeitherCheckedInTimeoutPolicy,
+                    )
+                  }
+                >
+                  {Object.entries(neitherCheckedInTimeoutPolicyLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label htmlFor="both-no-result-policy">
+                Both checked in, no result
+                <select
+                  disabled={!canEditAutomation}
+                  id="both-no-result-policy"
+                  value={formState.automation.bothCheckedInNoResultPolicy}
+                  onChange={(event) =>
+                    updateAutomationField(
+                      "bothCheckedInNoResultPolicy",
+                      event.target.value as BothCheckedInNoResultPolicy,
+                    )
+                  }
+                >
+                  {Object.entries(bothCheckedInNoResultPolicyLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {getAutomationPolicyWarnings(formState.automation).map((warning) => (
+              <p className="error" key={warning}>
+                {warning}
+              </p>
+            ))}
           </section>
 
           <label htmlFor="rules">
