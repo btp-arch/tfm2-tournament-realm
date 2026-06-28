@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { ActiveActionBanner } from "@/components/active-action-banner";
 import { SiteNav } from "@/components/site-nav";
@@ -15,6 +16,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <SiteNav />
         <ActiveActionBanner />
         <main className="container">{children}</main>
+        <Analytics />
       </body>
     </html>
   );
