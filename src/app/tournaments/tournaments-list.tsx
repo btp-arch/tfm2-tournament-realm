@@ -114,7 +114,6 @@ export function TournamentsList() {
   return (
     <>
       <PageHeader
-        eyebrow="Free-entry events"
         title="Tournaments"
         description="Upcoming Teamfight Manager 2 community tournaments."
       />

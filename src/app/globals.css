@@ -79,6 +79,17 @@ textarea {
   text-decoration: none;
 }
 
+.nav a.nav-profile-link {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.nav a.nav-profile-link:hover {
+  background: #1b2b42;
+}
+
 .nav-spacer {
   flex: 1 1 auto;
 }
@@ -322,6 +333,33 @@ textarea {
   white-space: pre-line;
 }
 
+.password-requirements {
+  display: grid;
+  gap: .35rem;
+  margin: -.35rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: .92rem;
+}
+
+.password-requirements li.met {
+  color: var(--green);
+}
+
+.field-error,
+.field-success {
+  margin: -.35rem 0 0;
+  font-size: .92rem;
+}
+
+.field-error {
+  color: #ffc9cf;
+}
+
+.field-success {
+  color: var(--green);
+}
+
 .wide-form {
   max-width: 760px;
 }
@@ -377,6 +415,18 @@ textarea {
 .button:disabled {
   cursor: not-allowed;
   opacity: .65;
+}
+
+.text-button {
+  border: 0;
+  padding: .75rem 0 0;
+  background: transparent;
+  color: var(--blue-soft);
+  cursor: pointer;
+}
+
+.text-button:hover {
+  color: #ffffff;
 }
 
 .secondary-button {
@@ -847,6 +897,15 @@ textarea {
   border-radius: 8px;
   padding: 1rem;
   background: var(--surface-subtle);
+}
+
+.tournament-result-row {
+  color: var(--text);
+}
+
+.tournament-result-row:hover {
+  border-color: var(--blue);
+  text-decoration: none;
 }
 
 .match-history-row h3,

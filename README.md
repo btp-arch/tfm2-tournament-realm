@@ -76,16 +76,24 @@ Enable email/password authentication in Supabase Auth. If email confirmations ar
 
 - `http://localhost:3000`
 - `http://localhost:3000/auth`
+- `http://localhost:3000/auth/update-password`
+- `http://127.0.0.1:3000/auth/update-password`
 - `http://localhost:3000/profile`
 - `http://localhost:3000/players/[profile-id]`
 - `http://localhost:3000/organizer`
 - `http://localhost:3000/admin`
+
+For deployment, also add the deployed site origin and the deployed `/auth/update-password` URL in the Supabase Auth redirect allow-list. The reset request form derives its redirect origin from `window.location.origin`, so local and deployed reset links use the current app origin without hardcoded production URLs.
 
 The app uses the public Supabase URL and anon key from `.env.local`. Do not put service-role keys in the browser environment.
 
 ## Auth and profiles
 
 - `/auth` provides sign-in and sign-up with Supabase Auth.
+- Sign-up requires a password and local confirm-password field. Passwords must be at least 8 characters and include a letter, a number, and a symbol.
+- Login only asks for email and password.
+- The `/auth` forgot-password flow sends Supabase password reset emails without revealing whether an email exists.
+- Password reset links land on `/auth/update-password`, where users enter a new password and local confirm-password field before Supabase Auth updates the password.
 - The top navigation reads the browser session and shows `Sign In` when logged out, or `Profile` and `Sign Out` when logged in.
 - `/profile` redirects logged-out visitors to `/auth?redirectTo=/profile`.
 - `/players/[id]` is a public read-only player profile with computed record summaries and recent finalized match history.
@@ -385,14 +393,19 @@ npm run typecheck
 ## Manual auth smoke test
 
 1. Start the app with `npm run dev`.
-2. Open `/auth` and create a test user with email/password.
-3. If Supabase requires email confirmation, confirm the user in Supabase Auth or through the email link, then sign in.
-4. Confirm the nav changes from `Sign In` to `Profile` and `Sign Out`.
-5. Open `/profile`, edit display name, Discord username, and Steam profile URL, then save.
-6. Confirm a player account does not see Organizer or Admin links in the nav.
-7. Bootstrap or grant an admin role, then confirm `/admin` loads role management.
-8. Grant an organizer role to a test profile, then confirm that account can open `/organizer`.
-9. Sign out and confirm `/profile` sends the browser back to sign in.
+2. Open `/auth`, switch to sign-up, and confirm weak passwords are blocked until they meet all listed requirements.
+3. Enter a valid password with a different confirm password and confirm sign-up is blocked with `Passwords do not match.`
+4. Enter matching valid passwords and create a test user.
+5. If Supabase requires email confirmation, confirm the user in Supabase Auth or through the email link, then sign in.
+6. Confirm the nav changes from `Sign In` to `Profile` and `Sign Out`.
+7. Open `/profile`, edit display name, Discord username, and Steam profile URL, then save.
+8. Sign out, open `/auth`, click `Forgot password?`, enter the test email, and confirm the neutral reset-email success message appears.
+9. Open `/auth/update-password` without a reset session and confirm it explains that a reset link is required.
+10. If reset email delivery is configured, open the reset link, confirm weak and mismatched new passwords are blocked, then update to a valid matching password.
+11. Confirm a player account does not see Organizer or Admin links in the nav.
+12. Bootstrap or grant an admin role, then confirm `/admin` loads role management.
+13. Grant an organizer role to a test profile, then confirm that account can open `/organizer`.
+14. Sign out and confirm `/profile` sends the browser back to sign in.
 
 ## GUI Git option
 

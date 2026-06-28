@@ -1,1 +1,15 @@
-export default function RulesPage() { return <><h1>Rules</h1><div className="card"><h2>Community-first rules</h2><ul><li>Free-entry tournaments only.</li><li>No betting, wagers, buy-ins, wallets, deposits, withdrawals, rake, or payment features.</li><li>Match results rely on reporting, evidence, opponent confirmation, and organizer/admin review.</li></ul></div></>; }
+export default function RulesPage() {
+  return (
+    <>
+      <h1>Rules</h1>
+      <div className="card">
+        <h2>Community-first rules</h2>
+        <ul>
+          <li>Match results rely on reporting, evidence, opponent confirmation, and organizer/admin review.</li>
+          <li>False match reports may lead to tournament removal, account restrictions, or bans.</li>
+          <li>Repeated no-shows for tournaments or matches may lower registration priority for future events.</li>
+        </ul>
+      </div>
+    </>
+  );
+}

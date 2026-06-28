@@ -12,7 +12,7 @@ const links = [
   ["Home", "/"],
   ["Tournaments", "/tournaments"],
   ["Rules", "/rules"],
-  ["About", "/about"],
+  ["Help", "/help"],
 ];
 
 export function SiteNav() {
@@ -103,7 +103,7 @@ export function SiteNav() {
       {!isLoading && user ? (
         <>
           <NotificationMenu user={user} />
-          <Link href="/profile">Profile</Link>
+          <Link className="nav-profile-link" href="/profile">Profile</Link>
           <button className="nav-button" type="button" onClick={handleSignOut}>
             Sign Out
           </button>

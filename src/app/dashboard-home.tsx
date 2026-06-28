@@ -263,6 +263,7 @@ export function DashboardHome() {
             .select("*")
             .in("id", tournamentIds)
             .in("status", publicTournamentStatuses)
+            .neq("status", "completed")
             .order("starts_at", { ascending: true, nullsFirst: false });
 
           if (tournamentsError) {
@@ -378,9 +379,7 @@ export function DashboardHome() {
   return (
     <>
       <PageHeader
-        eyebrow="Free-entry community tournaments"
         title="TFM2 Tournament Realm"
-        description="A compact command center for Teamfight Manager 2 tournament registration, check-in, matches, and results."
         action={
           <Link className="button button-link" href="/tournaments">
             Browse Tournaments
