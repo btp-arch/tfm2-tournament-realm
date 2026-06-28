@@ -1209,6 +1209,21 @@ textarea {
   margin-top: 1rem;
 }
 
+.share-link-fallback {
+  display: grid;
+  gap: .5rem;
+  margin-top: .75rem;
+}
+
+.share-link-fallback input {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: .7rem .8rem;
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
 .bracket-card-shell {
   overflow: hidden;
   padding: .75rem;

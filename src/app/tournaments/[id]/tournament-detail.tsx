@@ -194,6 +194,84 @@ type MatchRoundGroup = {
   matches: MatchRow[];
 };
 
+type ShareStatus = "idle" | "copied" | "failed";
+
+function buildTournamentShareUrl(tournamentId: string) {
+  const path = `/tournaments/${tournamentId}#registration`;
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+
+  return `${origin}${path}`;
+}
+
+function copyTextFallback(text: string) {
+  if (typeof document === "undefined") {
+    return false;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.left = "-1000px";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+function TournamentShareButton({
+  isCopied,
+  onShare,
+}: {
+  isCopied: boolean;
+  onShare: () => void;
+}) {
+  return (
+    <button className="button secondary-button" type="button" onClick={onShare}>
+      {isCopied ? "Link copied" : "Share Tournament"}
+    </button>
+  );
+}
+
+function TournamentShareFeedback({
+  fallbackUrl,
+  status,
+}: {
+  fallbackUrl: string;
+  status: ShareStatus;
+}) {
+  if (status === "copied") {
+    return (
+      <p className="notice" aria-live="polite">
+        Tournament link copied
+      </p>
+    );
+  }
+
+  if (status !== "failed") {
+    return null;
+  }
+
+  return (
+    <div className="share-link-fallback" aria-live="polite">
+      <p className="error">Copy failed - select and copy this link</p>
+      <input
+        aria-label="Tournament share link"
+        readOnly
+        type="url"
+        value={fallbackUrl}
+        onFocus={(event) => event.currentTarget.select()}
+      />
+    </div>
+  );
+}
+
 function getProfileName(profiles: Record<string, PublicProfile>, userId: string | null) {
   if (!userId) {
     return null;
@@ -798,6 +876,8 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
   const [savingAction, setSavingAction] = useState<SavingAction>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [shareStatus, setShareStatus] = useState<ShareStatus>("idle");
+  const [shareFallbackUrl, setShareFallbackUrl] = useState("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [clockNow, setClockNow] = useState(() => new Date());
   const lastAutomaticAutomationSignatureRef = useRef("");
@@ -3175,6 +3255,33 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
     }
   }
 
+  async function shareTournament() {
+    if (!tournament) {
+      return;
+    }
+
+    const shareUrl = buildTournamentShareUrl(tournament.id);
+    setShareFallbackUrl(shareUrl);
+    setShareStatus("idle");
+
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareStatus("copied");
+        return;
+      }
+
+      if (copyTextFallback(shareUrl)) {
+        setShareStatus("copied");
+        return;
+      }
+
+      setShareStatus("failed");
+    } catch {
+      setShareStatus(copyTextFallback(shareUrl) ? "copied" : "failed");
+    }
+  }
+
   if (isLoading) {
     return <LoadingState message="Loading tournament..." />;
   }
@@ -3313,7 +3420,7 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
       />
 
       <TournamentPanel active={selectedTab === "overview"} id="overview">
-        <section className="card">
+        <section className="card" id="registration">
           <div className="section-heading">
             <div>
               <h2>Next Action</h2>
@@ -3378,8 +3485,15 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
                   {isGroupStageTournament && !hasPlayoffBracket ? "View Groups" : "View Bracket"}
                 </button>
               ) : null}
+              <TournamentShareButton
+                isCopied={shareStatus === "copied"}
+                onShare={() => {
+                  void shareTournament();
+                }}
+              />
             </div>
           </div>
+          <TournamentShareFeedback fallbackUrl={shareFallbackUrl} status={shareStatus} />
         </section>
 
         {statusGuidance ? (
@@ -4308,7 +4422,14 @@ export function TournamentDetail({ tournamentId }: { tournamentId: string }) {
             ) : (
               <p className="muted">{registrationBlockedReason}</p>
             )}
+            <TournamentShareButton
+              isCopied={shareStatus === "copied"}
+              onShare={() => {
+                void shareTournament();
+              }}
+            />
           </div>
+          <TournamentShareFeedback fallbackUrl={shareFallbackUrl} status={shareStatus} />
         </section>
 
         <section className="card">
