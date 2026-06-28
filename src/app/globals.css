@@ -222,6 +222,57 @@ textarea {
   gap: 1rem;
 }
 
+.help-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.help-card-link {
+  display: grid;
+  gap: .45rem;
+  min-height: 9rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.help-card-link:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  text-decoration: none;
+}
+
+.help-card-link span {
+  font-weight: 800;
+}
+
+.help-card-link p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.help-list {
+  display: grid;
+  gap: .55rem;
+}
+
+.related-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .6rem;
+}
+
+.related-links a {
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: .45rem .65rem;
+  background: var(--surface-subtle);
+}
+
 .badge {
   display: inline-block;
   border: 1px solid var(--blue);

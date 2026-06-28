@@ -72,20 +72,46 @@ Cloud execution may require Supabase access tokens configured in your shell or C
 
 ## Supabase Auth setup
 
-Enable email/password authentication in Supabase Auth. If email confirmations are enabled, add your local app URL to the allowed redirect URLs:
+Enable email/password authentication in Supabase Auth.
 
-- `http://localhost:3000`
+For production, verify these Supabase Auth URL settings manually in the Supabase dashboard:
+
+- Site URL: `https://tfm2-tournament-realm.vercel.app`
+- Redirect URL: `https://tfm2-tournament-realm.vercel.app/auth`
+- Redirect URL: `https://tfm2-tournament-realm.vercel.app/auth/update-password`
+- Redirect URL: `https://tfm2-tournament-realm.vercel.app/profile`
+
+Keep local development redirects documented and allowed:
+
 - `http://localhost:3000/auth`
 - `http://localhost:3000/auth/update-password`
-- `http://127.0.0.1:3000/auth/update-password`
 - `http://localhost:3000/profile`
-- `http://localhost:3000/players/[profile-id]`
-- `http://localhost:3000/organizer`
-- `http://localhost:3000/admin`
+- `http://localhost:3001/auth`
+- `http://localhost:3001/auth/update-password`
+- `http://localhost:3001/profile`
 
-For deployment, also add the deployed site origin and the deployed `/auth/update-password` URL in the Supabase Auth redirect allow-list. The reset request form derives its redirect origin from `window.location.origin`, so local and deployed reset links use the current app origin without hardcoded production URLs.
+The reset request form derives its redirect origin from `window.location.origin`, so local and deployed reset links use the current app origin without hardcoded production URLs.
+
+## Vercel deployment checklist
+
+Production URL: `https://tfm2-tournament-realm.vercel.app/`
+
+Verify these Vercel environment variables before a public test:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` if configured for server-only maintenance scripts or future server-side admin tasks
+
+`SUPABASE_SERVICE_ROLE_KEY` must never be exposed with a `NEXT_PUBLIC_` prefix, committed to the repository, pasted into client code, or requested from users in app prompts. The current app runtime uses the public Supabase URL and anon key for browser and server client creation.
 
 The app uses the public Supabase URL and anon key from `.env.local`. Do not put service-role keys in the browser environment.
+
+## Public test status
+
+- Deployed URL: `https://tfm2-tournament-realm.vercel.app/`
+- Current known limitations: live automation is app-activity driven, not cron-driven; results are reported manually; organizer/admin role bootstrap is still a manual database-owner step for a fresh environment.
+- Manual Supabase dashboard items: confirm production Site URL, production redirect URLs, local redirect URLs, email/password Auth provider, and email reset template links before public testing.
+- First test tournament checklist: run one 4-player single-elimination event, one small group-stage playoff event, one dispute path, one forfeit/no-contest path, and one records verification pass using test accounts.
 
 ## Auth and profiles
 
@@ -352,6 +378,84 @@ The app uses the public Supabase URL and anon key from `.env.local`. Do not put 
 8. Toggle the same tournament to hidden and confirm it disappears from `/`.
 9. Inspect a completed visible tournament with a finalized winner and confirm `Recent Winners` shows the winner line.
 10. Confirm the nav notification bell and site-wide active action banner still work.
+
+## Deployed site smoke test checklist
+
+Use `https://tfm2-tournament-realm.vercel.app/` for the deployed public-test pass.
+
+### Public page checks
+
+- [ ] Homepage loads.
+- [ ] Help pages load signed out: `/help`, `/help/how-it-works`, `/help/rules`, `/help/check-in`, `/help/matches`, `/help/groups`, `/help/timing`, `/help/records`, and `/help/organizers`.
+- [ ] Public tournament list and public tournament detail pages load signed out where the tournament is public.
+- [ ] Organizer/admin controls are not visible while signed out.
+
+### Auth checks
+
+- [ ] `/auth` loads.
+- [ ] Weak sign-up password is blocked.
+- [ ] Mismatched confirm password is blocked.
+- [ ] Valid sign-up works.
+- [ ] Logout works.
+- [ ] Login works.
+- [ ] `/profile` works signed in.
+- [ ] Forgot password request shows a neutral success message.
+- [ ] Reset link opens `/auth/update-password` on the deployed URL.
+- [ ] `/auth/update-password` handles a missing or expired reset session clearly.
+
+### Role checks
+
+- [ ] Signed-out user cannot access `/admin`.
+- [ ] Normal player cannot access `/admin`.
+- [ ] Organizer can access organizer tools for tournaments they manage.
+- [ ] Admin can access `/admin` and tournament Live Control.
+
+### Tournament flow checks
+
+- [ ] Create a test tournament.
+- [ ] Register test players.
+- [ ] Check in players.
+- [ ] Run replacement flow if possible.
+- [ ] Assign manual seeds.
+- [ ] Generate a single-elimination bracket.
+- [ ] Generate a group-stage draw.
+- [ ] Confirm group round waves.
+- [ ] Match room opens.
+- [ ] Host setup works.
+- [ ] Result reporting works.
+- [ ] Score reporting works.
+- [ ] Winner advancement works.
+- [ ] Final completes tournament.
+
+### Timing and automation checks
+
+- [ ] Countdown bar appears.
+- [ ] Live Control timers tick locally.
+- [ ] Pause/resume works.
+- [ ] Extend timer works.
+- [ ] Manual mode does not auto-run toggles.
+- [ ] Automatic mode can run eligible actions from staff activity.
+- [ ] Run Automation Now is idempotent.
+- [ ] Forfeit, no-contest, and random advancement policies display correctly.
+
+### Records checks
+
+- [ ] Played matches count properly.
+- [ ] Forfeit does not count public record.
+- [ ] No contest does not count public record.
+- [ ] Random advancement does not count public record.
+- [ ] BYE does not count public record.
+- [ ] Test and stat-excluded tournaments do not count.
+
+### Deployment checks
+
+- [ ] Vercel environment variables are present.
+- [ ] Supabase Auth Site URL and redirect URLs are correct.
+- [ ] `.env.local` is not committed.
+- [ ] `npm run lint` passes.
+- [ ] `npm run typecheck` passes.
+- [ ] `npm run build` passes.
+- [ ] `git diff --check` passes.
 
 ## First admin bootstrap
 

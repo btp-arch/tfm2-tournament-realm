@@ -1,32 +1,32 @@
-# Next Milestone Checklist: Pre-Live Smoke Testing and Public Help Pages
+# Next Milestone Checklist: Public Test Tournament Dry Run / Test Data Tools
 
-## Pre-Live Smoke Testing
+## Public Test Dry Run
 
-- [ ] Run full browser smoke tests for single-elimination tournaments from registration through completion.
-- [ ] Run full browser smoke tests for group-stage playoff tournaments, including underfilled groups, BYE/off-slots, qualifier ties, and playoff generation.
-- [ ] Verify automation defaults to Manual and never Automatic unless organizer/admin explicitly enables it.
-- [ ] Verify Automatic mode respects paused timers, paused automation, disabled toggles, disputes, existing reports, and repeated page polling.
-- [ ] Verify random timeout advancement is labeled, advances only tournament progression, and remains excluded from public player/game records.
-- [ ] Verify normal players cannot edit automation policy, run automation, see private evidence, or access Live Control.
-- [ ] Confirm repeated Run Automation Now calls do not duplicate groups, brackets, rounds, matches, notifications, or automation events beyond the attempted run log.
+- [ ] Run one 4-player single-elimination tournament from registration through final completion with test accounts.
+- [ ] Run one small group-stage playoff tournament from registration through playoff completion with test accounts.
+- [ ] Exercise a replacement-window path before bracket or group generation.
+- [ ] Exercise one dispute path with evidence upload and organizer/admin resolution.
+- [ ] Exercise one forfeit path and one no-contest path.
+- [ ] Confirm random advancement remains clearly labeled and excluded from public records.
 
-## Public Help Pages
+## Test Data Tools
 
-- [ ] Add concise public help copy for tournament registration, check-in, replacement slots, match rooms, result reporting, and disputes.
-- [ ] Add player-facing help for automation modes and timeout policies without exposing organizer-only control details.
-- [ ] Add record-counting help that clearly excludes FF, BYE, no-contest, random advancement, unresolved disputes, and test/stat-excluded tournaments.
-- [ ] Add organizer-facing help for Live Control, timer pause/resume/extend, and emergency Manual mode.
+- [ ] Decide whether a local-only seed script is needed for repeatable player, organizer, and admin test accounts.
+- [ ] Add safe test-data helpers only if they avoid real secrets and production user data.
+- [ ] Document how to clean up test tournaments without deleting real event history.
+- [ ] Keep all database changes represented in `supabase/migrations` with RLS enabled and explicit policies.
 
 ## Operational Readiness
 
-- [ ] Add focused tests for automation policy normalization, generated rules text, and timeout outcome policy selection.
-- [ ] Add database tests or seed scripts for timeout FF, no-contest, random advancement, and staff-review paths.
 - [ ] Document the no-cron/no-Edge-Function limitation: current automation is lazy and depends on app activity.
 - [ ] Review RLS policies for tournament automation events before public launch.
+- [ ] Verify Supabase Auth Site URL and redirect URLs in the production dashboard.
+- [ ] Verify Vercel environment variables before public testing.
 - [ ] Run `npm run lint`, `npm run typecheck`, `npm run build`, and `git diff --check` before release.
 
 ## Always
 
-- [ ] Keep automated game verification, Discord bot features, payments, buy-ins, wallets, paid subscriptions, and wagering out of scope.
+- [ ] Keep automated game verification, Discord bot features, payments, paid organizer subscriptions, and wagering out of scope.
+- [ ] Keep all tournaments free-entry and unofficial.
 - [ ] Keep dashboard calendar visibility independent from record eligibility.
 - [ ] Treat admin corrections as source-data corrections.
