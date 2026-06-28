@@ -94,6 +94,10 @@ function getUniqueTournamentIds(tournaments: TournamentRow[]) {
   return Array.from(new Set(tournaments.map((tournament) => tournament.id)));
 }
 
+function isOfficialCalendarTournament(tournament: TournamentRow) {
+  return tournament.tournament_tier === "official" || tournament.tournament_tier === "championship";
+}
+
 async function loadRegistrationCounts(
   supabase: ReturnType<typeof createClient>,
   tournamentIds: string[],
@@ -419,6 +423,9 @@ export function DashboardHome() {
           {calendarDays.map((day) => {
             const dayKey = day.toISOString();
             const tournaments = tournamentsByDay[dayKey] ?? [];
+            const officialTournaments = tournaments.filter(isOfficialCalendarTournament);
+            const unofficialTournamentCount = tournaments.length - officialTournaments.length;
+            const hasCalendarItems = officialTournaments.length > 0 || unofficialTournamentCount > 0;
             const isToday = isSameLocalDay(day, new Date());
 
             return (
@@ -427,9 +434,24 @@ export function DashboardHome() {
                   <strong>{formatDayTitle(day)}</strong>
                   <span className="muted">{formatDayDate(day)}</span>
                 </div>
-                {tournaments.length > 0 ? (
+                {hasCalendarItems ? (
                   <div className="calendar-tournament-list">
-                    {tournaments.map((tournament) => (
+                    {unofficialTournamentCount > 0 ? (
+                      <Link
+                        aria-label={`${unofficialTournamentCount} unofficial tournament${unofficialTournamentCount === 1 ? "" : "s"} on ${formatDayDate(day)}. Browse tournaments.`}
+                        className="calendar-tournament-entry calendar-overview-entry"
+                        href="/tournaments"
+                      >
+                        <div className="calendar-entry-topline">
+                          <span className="calendar-entry-time">Unofficial</span>
+                          <span className="calendar-entry-meta">
+                            {unofficialTournamentCount} tournament{unofficialTournamentCount === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                        <strong className="calendar-entry-name">Browse tournaments</strong>
+                      </Link>
+                    ) : null}
+                    {officialTournaments.map((tournament) => (
                       <TournamentCard
                         calendarEntry
                         compact

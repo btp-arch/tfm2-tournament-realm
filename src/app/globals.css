@@ -1593,6 +1593,14 @@ textarea {
   text-decoration: none;
 }
 
+.calendar-overview-entry {
+  background: #111c2d;
+}
+
+.calendar-overview-entry .calendar-entry-name {
+  color: var(--blue-soft);
+}
+
 .calendar-entry-topline,
 .calendar-entry-meta,
 .calendar-entry-status {
