@@ -5,6 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { logError } from "@/lib/errors";
 import {
+  getPasswordResetRedirectUrl,
+  redirectRecoveryToPasswordUpdateIfNeeded,
+} from "@/lib/auth-redirects";
+import {
   getPasswordRequirementStatus,
   mapAuthErrorMessage,
   passwordsMatch,
@@ -36,6 +40,13 @@ export function AuthForm() {
   useEffect(() => {
     let isMounted = true;
 
+    if (redirectRecoveryToPasswordUpdateIfNeeded()) {
+      return;
+    }
+
+    window.addEventListener("hashchange", redirectRecoveryToPasswordUpdateIfNeeded);
+    window.addEventListener("popstate", redirectRecoveryToPasswordUpdateIfNeeded);
+
     supabase.auth.getUser().then(({ data }) => {
       if (isMounted && data.user && mode !== "forgot-password") {
         router.replace(redirectTo);
@@ -44,6 +55,8 @@ export function AuthForm() {
 
     return () => {
       isMounted = false;
+      window.removeEventListener("hashchange", redirectRecoveryToPasswordUpdateIfNeeded);
+      window.removeEventListener("popstate", redirectRecoveryToPasswordUpdateIfNeeded);
     };
   }, [mode, redirectTo, router, supabase]);
 
@@ -67,7 +80,7 @@ export function AuthForm() {
 
     try {
       if (mode === "forgot-password") {
-        const passwordResetRedirectTo = `${window.location.origin}/auth/update-password`;
+        const passwordResetRedirectTo = getPasswordResetRedirectUrl();
         const result = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: passwordResetRedirectTo,
         });

@@ -11,6 +11,7 @@ import {
   SectionCard,
   TournamentCard,
 } from "@/components/ui";
+import { redirectRecoveryToPasswordUpdateIfNeeded } from "@/lib/auth-redirects";
 import { formatError, logError } from "@/lib/errors";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -351,6 +352,13 @@ export function DashboardHome() {
   }, [calendarDays, supabase]);
 
   useEffect(() => {
+    if (redirectRecoveryToPasswordUpdateIfNeeded()) {
+      return;
+    }
+
+    window.addEventListener("hashchange", redirectRecoveryToPasswordUpdateIfNeeded);
+    window.addEventListener("popstate", redirectRecoveryToPasswordUpdateIfNeeded);
+
     const timeoutId = window.setTimeout(() => {
       void loadDashboard();
     }, 0);
@@ -363,6 +371,8 @@ export function DashboardHome() {
 
     return () => {
       window.clearTimeout(timeoutId);
+      window.removeEventListener("hashchange", redirectRecoveryToPasswordUpdateIfNeeded);
+      window.removeEventListener("popstate", redirectRecoveryToPasswordUpdateIfNeeded);
       subscription.unsubscribe();
     };
   }, [loadDashboard, supabase]);

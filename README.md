@@ -74,15 +74,17 @@ Cloud execution may require Supabase access tokens configured in your shell or C
 
 Enable email/password authentication in Supabase Auth.
 
-For production, verify these Supabase Auth URL settings manually in the Supabase dashboard:
+For production, verify these Supabase Auth URL settings manually in the Supabase dashboard under Supabase -> Authentication -> URL Configuration:
 
-- Site URL: `https://tfm2-tournament-realm.vercel.app`
-- Redirect URL: `https://tfm2-tournament-realm.vercel.app/auth`
-- Redirect URL: `https://tfm2-tournament-realm.vercel.app/auth/update-password`
-- Redirect URL: `https://tfm2-tournament-realm.vercel.app/profile`
+Site URL:
 
-Keep local development redirects documented and allowed:
+- `https://tfm2-tournament-realm.vercel.app`
 
+Redirect URLs:
+
+- `https://tfm2-tournament-realm.vercel.app/auth`
+- `https://tfm2-tournament-realm.vercel.app/auth/update-password`
+- `https://tfm2-tournament-realm.vercel.app/profile`
 - `http://localhost:3000/auth`
 - `http://localhost:3000/auth/update-password`
 - `http://localhost:3000/profile`
@@ -90,7 +92,13 @@ Keep local development redirects documented and allowed:
 - `http://localhost:3001/auth/update-password`
 - `http://localhost:3001/profile`
 
-The reset request form derives its redirect origin from `window.location.origin`, so local and deployed reset links use the current app origin without hardcoded production URLs.
+Password reset troubleshooting:
+
+- If reset emails go to localhost, check the Supabase Site URL and Redirect URLs above.
+- Send reset emails from the deployed `/auth` page when testing production.
+- Old reset emails may still use old redirect settings; send a fresh reset email after changing Supabase settings.
+
+The reset request form derives its redirect origin from `window.location.origin` and appends `/auth/update-password`, so local and deployed reset links use the current app origin without hardcoded production URLs.
 
 ## Vercel deployment checklist
 
